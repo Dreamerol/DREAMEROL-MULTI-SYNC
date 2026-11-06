@@ -1,86 +1,103 @@
-import json
-
-import keyring
 import pytest
 
 from fork_sync import accounts as accounts_module
-from fork_sync.accounts import ACCOUNT_INDEX, SERVICE_NAME, AccountManager
+from fork_sync.accounts import AccountManager, SERVICE_NAME
 
 
-@pytest.fixture
+class FakeSession:
+    def __init__(self):
+        self.closed = False
 
-def fake_keyring(monkeypatch):
-    store = {}
-    monkeypatch.setattr(
-        keyring,
-        "get_password",
-        lambda service, username: store.get((service, username)),
-    )
-    monkeypatch.setattr(
-        keyring,
-        "set_password",
-        lambda service, username, password: store.__setitem__((service, username), password),
-    )
-    monkeypatch.setattr(
-        keyring,
-        "delete_password",
-        lambda service, username: store.pop((service, username)),
-    )
-    return store
+    def close(self):
+        self.closed = True
 
 
-class FakeClient:
+class FakeGitHubClient:
     def __init__(self, token):
         self.token = token
-        self.session = type("Session", (), {"close": lambda self: None})()
+        self.session = FakeSession()
 
     def get_authenticated_user(self):
         return {"login": "octocat"}
 
 
-def test_list_accounts_loads_persisted_index(fake_keyring):
-    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = json.dumps(["zoe", "octocat"])
+@pytest.fixture
+def fake_keyring(monkeypatch):
+    store = {}
 
-    assert AccountManager().list_accounts() == ["octocat", "zoe"]
+    monkeypatch.setattr(
+        accounts_module.keyring,
+        "get_password",
+        lambda service, username: store.get((service, username)),
+    )
+    monkeypatch.setattr(
+        accounts_module.keyring,
+        "set_password",
+        lambda service, username, password: store.__setitem__(
+            (service, username), password
+        ),
+    )
+    monkeypatch.setattr(
+        accounts_module.keyring,
+        "delete_password",
+        lambda service, username: store.pop((service, username)),
+    )
+    monkeypatch.setattr(
+        accounts_module,
+        "GitHubClient",
+        FakeGitHubClient,
+    )
+    return store
 
 
-def test_list_accounts_handles_invalid_index(fake_keyring):
-    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = "not-json"
+def test_add_account_validates_and_stores_token(fake_keyring):
+    manager = AccountManager()
 
-    assert AccountManager().list_accounts() == []
-
-
-def test_add_account_saves_token_and_username(monkeypatch, fake_keyring):
-    monkeypatch.setattr(accounts_module, "GitHubClient", FakeClient)
-
-    username = AccountManager().add_account(" token ")
+    username = manager.add_account("test-token")
 
     assert username == "octocat"
-    assert fake_keyring[(SERVICE_NAME, "octocat")] == "token"
-    assert AccountManager().list_accounts() == ["octocat"]
+    assert fake_keyring[(SERVICE_NAME, "octocat")] == "test-token"
+    assert manager.list_accounts() == ["octocat"]
 
 
-def test_get_client_rejects_unregistered_account(monkeypatch, fake_keyring):
-    monkeypatch.setattr(accounts_module, "GitHubClient", FakeClient)
+def test_add_account_closes_validation_client(fake_keyring, monkeypatch):
+    clients = []
 
-    with pytest.raises(ValueError, match="not registered"):
-        AccountManager().get_client("unknown")
+    class TrackingClient(FakeGitHubClient):
+        def __init__(self, token):
+            super().__init__(token)
+            clients.append(self)
+
+    monkeypatch.setattr(accounts_module, "GitHubClient", TrackingClient)
+
+    AccountManager().add_account("test-token")
+
+    assert clients[0].session.closed
 
 
-def test_get_client_uses_saved_token(monkeypatch, fake_keyring):
-    monkeypatch.setattr(accounts_module, "GitHubClient", FakeClient)
-    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = json.dumps(["octocat"])
-    fake_keyring[(SERVICE_NAME, "octocat")] = "secret"
+def test_get_client_uses_token_from_keyring(fake_keyring):
+    fake_keyring[(SERVICE_NAME, "octocat")] = "stored-token"
 
     client = AccountManager().get_client("octocat")
 
-    assert client.token == "secret"
+    assert client.token == "stored-token"
 
 
-def test_remove_account_deletes_token_and_index(fake_keyring):
-    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = json.dumps(["octocat", "other"])
-    fake_keyring[(SERVICE_NAME, "octocat")] = "secret"
+def test_get_client_raises_when_token_is_missing(fake_keyring):
+    with pytest.raises(ValueError, match="No credentials"):
+        AccountManager().get_client("unknown")
 
-    assert AccountManager().remove_account("octocat") is True
+
+def test_remove_account_deletes_saved_token(fake_keyring):
+    manager = AccountManager()
+    manager.accounts["octocat"] = "octocat"
+    fake_keyring[(SERVICE_NAME, "octocat")] = "stored-token"
+
+    assert manager.remove_account("octocat") is True
     assert (SERVICE_NAME, "octocat") not in fake_keyring
-    assert AccountManager().list_accounts() == ["other"]
+    assert manager.list_accounts() == []
+
+
+def test_remove_account_rejects_unknown_username(fake_keyring):
+    with pytest.raises(ValueError, match="Account not found"):
+        AccountManager().remove_account("unknown")
