@@ -1,11 +1,3 @@
-<h1 align="center">🛠️ DREAMEROL SYNC FORK</h1>
-
-<h2 align="center">
-  <strong>Automated GitHub fork synchronization</strong>
-</h2>
-
-
-
 
 
 
@@ -159,6 +151,9 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
+<h2 align="center">
+  <strong>Automated GitHub fork synchronization</strong>
+</h2>
 
 
 
