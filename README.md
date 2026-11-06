@@ -7,6 +7,10 @@
 
 
 
+https://raw.githubusercontent.com/Dreamerol/Dreamerol/main/Mihaela%20Koseva%20Sync.png
+
+
+
 
 
 <div align="center">
