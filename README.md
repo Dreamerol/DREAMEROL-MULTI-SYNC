@@ -1,8 +1,8 @@
 <h1 align="center">🛠️ DREAMEROL SYNC FORK</h1>
 
-<p align="center">
+<h2 align="center">
   <strong>Automated GitHub fork synchronization</strong>
-</p>
+</h2>
 
 <p align="center">
   A Python command-line tool that finds forks owned by the authenticated GitHub account
