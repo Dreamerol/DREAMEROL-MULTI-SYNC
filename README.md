@@ -1,4 +1,12 @@
-# DREAMEROL SYNC FORK
+
+
+
+
+
+<h1 align="center">𝗗𝗥𝗘𝗔𝗠𝗘𝗥𝗢𝗟 𝗦𝗬𝗡𝗖 𝗙𝗢𝗥𝗞</h1>
+
+
+
 
 A Python command-line tool that discovers forks owned by the authenticated GitHub account and asks GitHub to merge each fork’s upstream branch into its default branch. Forks are processed sequentially, with a result reported for each repository.
 
