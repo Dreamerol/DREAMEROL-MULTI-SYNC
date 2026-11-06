@@ -11,48 +11,78 @@ class ForkSynchronizer:
         self.github = github_client
 
     def get_forks(self):
-        """Find all forks owned by the authenticated account."""
+        """Find all forks belonging to the authenticated account."""
         repositories = self.github.list_repositories()
 
         return [
             repository
             for repository in repositories
-            if repository.get("fork") and repository.get("parent")
+            if isinstance(repository, dict)
+            and repository.get("fork")
+            and repository.get("parent")
         ]
 
     def sync_fork(self, repository):
-        """Synchronize a fork with its upstream default branch."""
-        full_name = repository["full_name"]
+        """Synchronize one fork with its upstream repository."""
+
+        if not isinstance(repository, dict):
+            return {
+                "repository": "unknown",
+                "status": "error",
+                "message": "Invalid repository data.",
+            }
+
+        full_name = repository.get("full_name")
         branch = repository.get("default_branch")
 
-        if not branch:
+        if not isinstance(full_name, str) or full_name.count("/") != 1:
+            return {
+                "repository": "unknown",
+                "status": "error",
+                "message": "Missing or invalid repository full_name.",
+            }
+
+        if not isinstance(branch, str) or not branch.strip():
             return {
                 "repository": full_name,
                 "status": "error",
-                "message": "Default branch not found.",
+                "message": "Missing or invalid default branch.",
             }
 
         try:
             result = self.github.merge_upstream(full_name, branch)
 
+            if result is None:
+                status = "up-to-date"
+            else:
+                status = "synced"
+
             return {
                 "repository": full_name,
-                "status": "success",
-                "details": result,
+                "status": status,
             }
 
         except HTTPError as error:
-            status_code = (
-                error.response.status_code
-                if error.response is not None
-                else None
-            )
+            response = error.response
+            status_code = response.status_code if response is not None else None
+
+            if status_code == 409:
+                return {
+                    "repository": full_name,
+                    "status": "conflict",
+                    "message": "Upstream synchronization conflict.",
+                }
 
             return {
                 "repository": full_name,
-                "status": (
-                    "conflict" if status_code == 409 else "error"
-                ),
+                "status": "error",
+                "message": str(error),
+            }
+
+        except (ValueError, KeyError, TypeError) as error:
+            return {
+                "repository": full_name,
+                "status": "error",
                 "message": str(error),
             }
 
