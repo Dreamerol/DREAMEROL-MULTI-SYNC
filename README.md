@@ -150,10 +150,16 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
+<br>
+<br>
+<br>
 
-<h2 align="center">
+
+
+
+<h1 align="center">
   <strong>Automated GitHub fork synchronization</strong>
-</h2>
+</h1>
 
 
 
