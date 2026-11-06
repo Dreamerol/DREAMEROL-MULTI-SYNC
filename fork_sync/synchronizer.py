@@ -1,4 +1,3 @@
-
 """GitHub Fork discovery and upstream synchronization."""
 
 from requests.exceptions import HTTPError, RequestException
@@ -104,11 +103,11 @@ class ForkSynchronizer:
                 "message": str(error),
             }
 
-    def sync_all(self):
+    def sync_all(self, forks=None, dry_run=False):
         """Synchronize all discovered forks sequentially."""
 
         try:
-            forks = self.get_forks()
+            selected_forks = forks if forks is not None else self.get_forks()
         except (RequestException, ValueError, TypeError) as error:
             return [{
                 "repository": "account",
@@ -116,7 +115,14 @@ class ForkSynchronizer:
                 "message": str(error),
             }]
 
+        if dry_run:
+            return [{
+                "repository": repo.get("full_name", "unknown"),
+                "status": "dry-run",
+                "message": "Would synchronize fork with upstream.",
+            } for repo in selected_forks if isinstance(repo, dict)]
+
         return [
             self.sync_fork(repository)
-            for repository in forks
+            for repository in selected_forks
         ]
