@@ -5,13 +5,13 @@ from requests import HTTPError
 
 
 class ForkSynchronizer:
-    """Synchronizes GitHub forks with their upstream repositories."""
+    """Synchronize GitHub forks with their upstream repositories."""
 
     def __init__(self, github_client):
         self.github = github_client
 
     def get_forks(self):
-        """Find all forks belonging to the authenticated account."""
+        """Find all forks owned by the authenticated account."""
         repositories = self.github.list_repositories()
 
         return [
@@ -21,46 +21,38 @@ class ForkSynchronizer:
         ]
 
     def sync_fork(self, repository):
-        """Synchronize a fork with its upstream repository."""
-        owner, name = repository["full_name"].split("/", 1)
-        branch = repository["default_branch"]
+        """Synchronize a fork with its upstream default branch."""
+        full_name = repository["full_name"]
+        branch = repository.get("default_branch")
 
-        endpoint = (
-            f"{self.github.BASE_URL}/repos/"
-            f"{owner}/{name}/merge-upstream"
-        )
+        if not branch:
+            return {
+                "repository": full_name,
+                "status": "error",
+                "message": "Default branch not found.",
+            }
 
         try:
-            response = self.github.session.post(
-                endpoint,
-                json={"branch": branch},
-                timeout=30,
-            )
-
-            if response.status_code == 204:
-                return {
-                    "repository": repository["full_name"],
-                    "status": "up-to-date",
-                }
-
-            if response.status_code == 409:
-                return {
-                    "repository": repository["full_name"],
-                    "status": "conflict",
-                }
-
-            response.raise_for_status()
+            result = self.github.merge_upstream(full_name, branch)
 
             return {
-                "repository": repository["full_name"],
-                "status": "synced",
-                "details": response.json(),
+                "repository": full_name,
+                "status": "success",
+                "details": result,
             }
 
         except HTTPError as error:
+            status_code = (
+                error.response.status_code
+                if error.response is not None
+                else None
+            )
+
             return {
-                "repository": repository["full_name"],
-                "status": "error",
+                "repository": full_name,
+                "status": (
+                    "conflict" if status_code == 409 else "error"
+                ),
                 "message": str(error),
             }
 
@@ -72,4 +64,3 @@ class ForkSynchronizer:
             results.append(self.sync_fork(repository))
 
         return results
-
