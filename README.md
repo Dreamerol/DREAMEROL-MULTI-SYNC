@@ -1,11 +1,7 @@
 # DREAMEROL SYNC FORK
-A Python-powered GitHub automation tool for managing multiple accounts, discovering repositories, and synchronizing Forks with their upstream sources through the GitHub API. Built for scalable, sequential synchronization, reliable repository management, and streamlined open-source workflows.
-
-
-
-# DREAMEROL SYNC FORK
 
 A Python-powered GitHub automation tool for managing multiple accounts, discovering repositories, and synchronizing forks with their upstream sources through the GitHub API. Built for scalable, sequential synchronization, reliable repository management, and streamlined open-source workflows.
+
 
 > Warning: This tool can merge upstream changes into your forks. Only run it against repositories and accounts you trust and intend to update.
 
