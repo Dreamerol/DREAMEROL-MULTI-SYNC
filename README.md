@@ -3,105 +3,149 @@
 
 
 
-<h1 align="center">𝗗𝗥𝗘𝗔𝗠𝗘𝗥𝗢𝗟 𝗦𝗬𝗡𝗖 𝗙𝗢𝗥𝗞</h1>
+<h1 align="center">🛠️ 𝗗𝗥𝗘𝗔𝗠𝗘𝗥𝗢𝗟 𝗦𝗬𝗡𝗖 𝗙𝗢𝗥𝗞</h1>
 
 
 
+<p align="center">
+  <strong>Automated GitHub Fork Synchronization Tool</strong>
+</p>
 
-A Python command-line tool that discovers forks owned by the authenticated GitHub account and asks GitHub to merge each fork’s upstream branch into its default branch. Forks are processed sequentially, with a result reported for each repository.
+<p align="center">
+  A Python command-line tool that discovers forks owned by the authenticated
+  GitHub account and requests upstream synchronization through the GitHub API.
+  Forks are processed sequentially, with individual results reported for each repository.
+</p>
 
-> **Warning:** Synchronizing a fork can change its contents by merging upstream changes. Check the account and repositories selected by your token before running the tool.
+> ⚠️ **Warning:** Synchronizing a fork can modify its default branch by merging upstream changes.
+> Review the repositories accessible to your token before running the tool.
+> Synchronization conflicts are reported but are not automatically resolved.
 
-## What it does
+## 🚀 Features
 
-- Authenticates with the GitHub API using `GITHUB_TOKEN`.
-- Lists repositories owned by the authenticated account, including paginated results.
-- Selects repositories identified by GitHub as forks with parent metadata.
-- Requests an upstream merge using each fork’s default branch.
-- Reports successful syncs, forks already up to date, conflicts, and errors.
+- 🔐 **GitHub Authentication** — Authenticates through the GitHub API using `GITHUB_TOKEN`.
+- 🔎 **Automatic Discovery** — Finds repositories owned by the authenticated account.
+- 📄 **Pagination Support** — Retrieves repository listings across multiple API pages.
+- 🍴 **Fork Detection** — Identifies forks using GitHub repository metadata.
+- 🔄 **Upstream Synchronization** — Requests upstream merges into each fork's default branch.
+- 📊 **Individual Reporting** — Provides a synchronization result for every repository.
+- ⚠️ **Error Handling** — Reports conflicts, API failures, and repository-related errors.
 
-The repository also includes an `AccountManager` helper that validates accounts and stores tokens using the system keyring. It is not currently connected to the `main.py` command-line flow, which uses one `GITHUB_TOKEN`.
+The repository also includes an `AccountManager` helper that validates accounts and stores tokens using the system keyring. This functionality is not yet integrated into the `⁨main.py⁩` command-line workflow, which currently uses a single `GITHUB_TOKEN`.
 
-## Requirements
+## 📋 Requirements
 
 - Python 3
-- A GitHub personal access token that can access the repositories you want to synchronize and perform the requested upstream merges
+- A GitHub personal access token with sufficient repository access and permissions to perform upstream synchronization.
 
-## Setup
+## ⚙️ Installation
 
-Clone the repository and install its dependencies:
+Clone the repository and navigate to the project directory:
 
-```bash
-git clone https://github.com/Dreamerol/DREAMEROL-SYNC-FORK.git
+bash
+git clone ⁨https://github.com/Dreamerol/DREAMEROL-SYNC-FORK.git⁩
+
 cd DREAMEROL-SYNC-FORK
 
+Create a virtual environment:
+bash
 python -m venv .venv
-```
 
 Activate the virtual environment:
-
-```bash
+bash
 # macOS / Linux
 source .venv/bin/activate
 
 # Windows PowerShell
 .venv\Scripts\Activate.ps1
-```
 
-Install dependencies:
-
-```bash
+Install the required dependencies:
+bash
 pip install -r requirements.txt
 ```
 
-## Configure
+## 🔐 Configuration
 
-Create a `.env` file in the project root (or copy `.env.example`) and set your token:
+Create a `.env` file in the project root or copy the provided `.env.example` file.
 
-```dotenv
+Add your GitHub personal access token:
+
+dotenv
 GITHUB_TOKEN=your_github_token_here
-```
 
-Keep this token private and do not commit your `.env` file.
 
-## Run
+> 🔒 Security: Keep your access token private. Never commit your `.env` file or expose your credentials in public repositories.
 
-With the virtual environment active and `.env` configured, run:
+Use only the repository access and permissions required by the tool.
 
-```bash
-python main.py
-```
+## ▶️ Usage
 
-The program prints the authenticated account, the number of forks found, and a status for each synchronization attempt. If `GITHUB_TOKEN` is not set, it prints a configuration error and exits.
+Once the virtual environment is activated and your `.env` file is configured, run:
 
-## Result statuses
+bash
+python ⁨main.py⁩
 
-- `synced` — GitHub accepted the upstream merge request.
-- `up-to-date` — GitHub indicated that no merge was needed.
-- `conflict` — GitHub reported a synchronization conflict (HTTP 409); the conflict must be handled separately.
-- `error` — repository data was invalid or the API request failed. An error message is included when available.
 
-A failure for one fork is returned as that fork’s result; the synchronizer continues with the remaining forks.
+The program:
 
-## Project layout
+Authenticates with GitHub.
+Identifies the authenticated account.
+Discovers the account's accessible forks.
+Requests upstream synchronization for each fork.
+Reports the result of every synchronization attempt.
 
-```text
-.
-├── main.py                  # CLI entry point
+If `GITHUB_TOKEN` is missing, the application displays a configuration error and exits.
+
+## 📊 Result Statuses
+
+Each repository receives an individual synchronization status:
+
+| Status | Description |
+|:---|:---|
+| ✅ `synced` | GitHub accepted the upstream synchronization request. |
+| ℹ️ `up-to-date` | The fork is already synchronized with its upstream repository. |
+| ⚠️ `conflict` | GitHub reported a synchronization conflict (HTTP 409). |
+| ❌ `error` | Repository data was invalid or the API request failed. |
+
+A failure affecting one repository is reported individually. The synchronizer continues processing the remaining forks.
+
+## 📁 Project Structure
+
+text
+DREAMEROL-SYNC-FORK/
+│
+├── ⁨main.py⁩                  # CLI entry point
+│
 ├── fork_sync/
-│   ├── accounts.py          # Keyring-backed account helper
-│   ├── github.py            # GitHub API client
-│   └── synchronizer.py      # Fork discovery and synchronization
+│   ├── ⁨accounts.py⁩          # Keyring-backed account helper
+│   ├── ⁨github.py⁩            # GitHub API client
+│   └── ⁨synchronizer.py⁩      # Fork discovery and synchronization
+│
 ├── tests/
-│   └── test_synchronizer.py # Test module (tests not implemented yet)
+│   └── test_synchronizer.py # Test module (not yet implemented)
+│
 ├── .env.example             # Token configuration example
-└── requirements.txt         # Python dependencies
-```
+├── requirements.txt         # Python dependencies
+└── LICENSE                  # Project license
 
-## Development status
 
-`tests/test_synchronizer.py` is currently empty, so the repository does not yet have automated synchronizer tests. The project includes `pytest` as a dependency, but there are no implemented tests to run at this time.
+## 🧪 Development Status
 
-## License
+The project is under active development.
 
-See [LICENSE](LICENSE).
+- The core fork discovery and synchronization workflow is implemented.
+- The `AccountManager` helper is available but not yet integrated into the CLI.
+- `tests/test_synchronizer.py` is currently empty.
+- `pytest` is included as a dependency, but automated synchronizer tests have not yet been implemented.
+
+## 🗺️ Potential Improvements
+
+- Integrate `AccountManager` into the CLI workflow.
+- Implement automated synchronizer tests.
+- Add repository selection and exclusion options.
+- Introduce a dry-run mode.
+- Improve synchronization reporting.
+
+## 📜 License
+
+See [LICENSE](LICENSE) for details.
