@@ -1,1 +1,1 @@
-
+"""GitHub Fork synchronization package."""
