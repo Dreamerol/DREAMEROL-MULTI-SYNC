@@ -247,7 +247,15 @@ With the virtual environment activated and `.env` configured, run:
 python main.py
 ```
 
+
 The program authenticates with GitHub, prints the authenticated account, discovers its forks, requests synchronization for each fork, and reports the result. If `GITHUB_TOKEN` is missing, it prints a configuration error and exits.
+
+### Manage saved accounts
+
+Add a GitHub account. The token is entered without being shown on screen and is stored in the system keyring:
+
+```bash
+python main.py --add-account
 
 ## Result statuses
 
