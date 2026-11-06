@@ -172,7 +172,7 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 <p align="center">
-  A Python command-line tool that finds forks owned by the authenticated GitHub account
+  A Python CLI tool that finds forks owned by the authenticated GitHub account
   and requests upstream synchronization through the GitHub API.
 </p>
 
