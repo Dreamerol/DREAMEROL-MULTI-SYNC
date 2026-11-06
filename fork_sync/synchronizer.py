@@ -12,10 +12,8 @@ class ForkSynchronizer:
     def get_forks(self):
         """Find all forks belonging to the authenticated account."""
         repositories = self.github.list_repositories()
-
         if not isinstance(repositories, list):
             raise ValueError("Invalid repository list returned by GitHub.")
-
         return [
             repository
             for repository in repositories
@@ -26,7 +24,6 @@ class ForkSynchronizer:
 
     def sync_fork(self, repository):
         """Synchronize one fork with its upstream repository."""
-
         if not isinstance(repository, dict):
             return {
                 "repository": "unknown",
@@ -36,7 +33,6 @@ class ForkSynchronizer:
 
         full_name = repository.get("full_name")
         branch = repository.get("default_branch")
-
         if not isinstance(full_name, str):
             return {
                 "repository": "unknown",
@@ -45,14 +41,12 @@ class ForkSynchronizer:
             }
 
         parts = full_name.strip().split("/")
-
         if len(parts) != 2 or not all(part.strip() for part in parts):
             return {
                 "repository": "unknown",
                 "status": "error",
                 "message": "Invalid repository full_name.",
             }
-
         full_name = "/".join(part.strip() for part in parts)
 
         if not isinstance(branch, str) or not branch.strip():
@@ -61,41 +55,33 @@ class ForkSynchronizer:
                 "status": "error",
                 "message": "Missing or invalid default branch.",
             }
-
         branch = branch.strip()
 
         try:
             result = self.github.merge_upstream(full_name, branch)
-
             return {
                 "repository": full_name,
                 "status": "up-to-date" if result is None else "synced",
             }
-
         except HTTPError as error:
-            response = error.response
-            status_code = response.status_code if response is not None else None
-
+            status_code = error.response.status_code if error.response is not None else None
             if status_code == 409:
                 return {
                     "repository": full_name,
                     "status": "conflict",
                     "message": "Upstream synchronization conflict.",
                 }
-
             return {
                 "repository": full_name,
                 "status": "error",
                 "message": str(error),
             }
-
         except RequestException as error:
             return {
                 "repository": full_name,
                 "status": "error",
                 "message": str(error),
             }
-
         except (ValueError, KeyError, TypeError) as error:
             return {
                 "repository": full_name,
@@ -104,8 +90,7 @@ class ForkSynchronizer:
             }
 
     def sync_all(self, forks=None, dry_run=False):
-        """Synchronize all discovered forks sequentially."""
-
+        """Process supplied forks, or discover them if none were supplied."""
         try:
             selected_forks = forks if forks is not None else self.get_forks()
         except (RequestException, ValueError, TypeError) as error:
@@ -116,13 +101,14 @@ class ForkSynchronizer:
             }]
 
         if dry_run:
-            return [{
-                "repository": repo.get("full_name", "unknown"),
-                "status": "dry-run",
-                "message": "Would synchronize fork with upstream.",
-            } for repo in selected_forks if isinstance(repo, dict)]
+            return [
+                {
+                    "repository": repo.get("full_name", "unknown"),
+                    "status": "dry-run",
+                    "message": "Would synchronize fork with upstream.",
+                }
+                for repo in selected_forks
+                if isinstance(repo, dict)
+            ]
 
-        return [
-            self.sync_fork(repository)
-            for repository in selected_forks
-        ]
+        return [self.sync_fork(repository) for repository in selected_forks]
