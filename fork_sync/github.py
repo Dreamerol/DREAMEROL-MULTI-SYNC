@@ -20,26 +20,34 @@ class GitHubClient:
             "X-GitHub-Api-Version": "2022-11-28",
         })
 
-    def _get(self, endpoint: str, params=None):
-        response = self.session.get(
+    def _request(self, method: str, endpoint: str, **kwargs):
+        """Send an authenticated request to GitHub."""
+        response = self.session.request(
+            method,
             f"{self.BASE_URL}{endpoint}",
-            params=params,
             timeout=30,
+            **kwargs,
         )
+
         response.raise_for_status()
+
+        if response.status_code == 204 or not response.content:
+            return None
+
         return response.json()
 
     def get_authenticated_user(self):
         """Return the authenticated GitHub account."""
-        return self._get("/user")
+        return self._request("GET", "/user")
 
     def list_repositories(self):
-        """Return all repositories accessible as the authenticated owner."""
+        """Return all repositories owned by the authenticated account."""
         repositories = []
         page = 1
 
         while True:
-            batch = self._get(
+            batch = self._request(
+                "GET",
                 "/user/repos",
                 params={
                     "type": "owner",
@@ -58,3 +66,12 @@ class GitHubClient:
 
         return repositories
 
+    def merge_upstream(self, full_name: str, branch: str):
+        """Merge the upstream branch into a fork."""
+        owner, name = full_name.split("/", 1)
+
+        return self._request(
+            "POST",
+            f"/repos/{owner}/{name}/merge-upstream",
+            json={"branch": branch},
+        )
