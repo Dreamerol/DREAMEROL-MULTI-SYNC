@@ -1,7 +1,7 @@
 
 """GitHub Fork discovery and upstream synchronization."""
 
-from requests import HTTPError
+from requests.exceptions import HTTPError, RequestException
 
 
 class ForkSynchronizer:
@@ -13,6 +13,9 @@ class ForkSynchronizer:
     def get_forks(self):
         """Find all forks belonging to the authenticated account."""
         repositories = self.github.list_repositories()
+
+        if not isinstance(repositories, list):
+            raise ValueError("Invalid repository list returned by GitHub.")
 
         return [
             repository
@@ -35,12 +38,23 @@ class ForkSynchronizer:
         full_name = repository.get("full_name")
         branch = repository.get("default_branch")
 
-        if not isinstance(full_name, str) or full_name.count("/") != 1:
+        if not isinstance(full_name, str):
             return {
                 "repository": "unknown",
                 "status": "error",
                 "message": "Missing or invalid repository full_name.",
             }
+
+        parts = full_name.strip().split("/")
+
+        if len(parts) != 2 or not all(part.strip() for part in parts):
+            return {
+                "repository": "unknown",
+                "status": "error",
+                "message": "Invalid repository full_name.",
+            }
+
+        full_name = "/".join(part.strip() for part in parts)
 
         if not isinstance(branch, str) or not branch.strip():
             return {
@@ -49,17 +63,14 @@ class ForkSynchronizer:
                 "message": "Missing or invalid default branch.",
             }
 
+        branch = branch.strip()
+
         try:
             result = self.github.merge_upstream(full_name, branch)
 
-            if result is None:
-                status = "up-to-date"
-            else:
-                status = "synced"
-
             return {
                 "repository": full_name,
-                "status": status,
+                "status": "up-to-date" if result is None else "synced",
             }
 
         except HTTPError as error:
@@ -79,6 +90,13 @@ class ForkSynchronizer:
                 "message": str(error),
             }
 
+        except RequestException as error:
+            return {
+                "repository": full_name,
+                "status": "error",
+                "message": str(error),
+            }
+
         except (ValueError, KeyError, TypeError) as error:
             return {
                 "repository": full_name,
@@ -88,9 +106,17 @@ class ForkSynchronizer:
 
     def sync_all(self):
         """Synchronize all discovered forks sequentially."""
-        results = []
 
-        for repository in self.get_forks():
-            results.append(self.sync_fork(repository))
+        try:
+            forks = self.get_forks()
+        except (RequestException, ValueError, TypeError) as error:
+            return [{
+                "repository": "account",
+                "status": "error",
+                "message": str(error),
+            }]
 
-        return results
+        return [
+            self.sync_fork(repository)
+            for repository in forks
+        ]
