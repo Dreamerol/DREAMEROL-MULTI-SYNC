@@ -57,6 +57,7 @@ class GitHubClient:
         forks = []
         next_url = repositories_url
         next_params = params
+
         while next_url:
             response = self.session.get(
                 next_url,
