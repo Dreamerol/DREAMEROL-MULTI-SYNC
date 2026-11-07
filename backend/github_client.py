@@ -30,8 +30,12 @@ class GitHubClient:
             not isinstance(owner, str)
             or not normalized_owner
             or len(normalized_owner) > 39
+            or not normalized_owner[0].isascii()
             or not normalized_owner[0].isalnum()
-            or not all(char.isalnum() or char == "-" for char in normalized_owner)
+            or not all(
+                char.isascii() and (char.isalnum() or char == "-")
+                for char in normalized_owner
+            )
             or normalized_owner.endswith("-")
             or "--" in normalized_owner
         ):
