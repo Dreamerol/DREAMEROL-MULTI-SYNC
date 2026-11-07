@@ -168,6 +168,12 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
+
+<br>
+
+
+
+
 ### ⚡ Keep your GitHub forks synchronized effortlessly.
 
 A Python command-line tool that automatically discovers GitHub forks owned by an authenticated account and requests upstream synchronization through the official GitHub API.
