@@ -24,8 +24,19 @@ class GitHubClient:
 
     def get_forks(self, owner):
         """Return all fork repositories owned by a GitHub user or organization."""
-        if not isinstance(owner, str) or not owner.strip():
-            raise ValueError("GitHub owner must be a non-empty string.")
+        if (
+            not isinstance(owner, str)
+            or not owner.strip()
+            or len(owner.strip()) > 39
+            or not owner.strip()[0].isalnum()
+            or not all(
+                char.isalnum() or char == "-"
+                for char in owner.strip()
+            )
+            or owner.strip().endswith("-")
+            or "--" in owner.strip()
+        ):
+            raise ValueError("Invalid GitHub owner login.")
 
         owner = owner.strip()
         account_url = f"{self.BASE_URL}/users/{owner}"
