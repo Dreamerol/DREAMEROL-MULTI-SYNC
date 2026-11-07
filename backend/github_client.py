@@ -1,4 +1,6 @@
 import os
+import re
+
 import requests
 
 
@@ -22,26 +24,29 @@ class GitHubClient:
             }
         )
 
-    def get_forks(self, owner):
-        """Return all fork repositories owned by a GitHub user or organization."""
-        normalized_owner = owner.strip() if isinstance(owner, str) else ""
+    @staticmethod
+    def _validate_owner_login(owner):
+        if not isinstance(owner, str):
+            raise ValueError("Invalid GitHub owner login")
+
+        owner = owner.strip()
 
         if (
-            not isinstance(owner, str)
-            or not normalized_owner
-            or len(normalized_owner) > 39
-            or not normalized_owner[0].isascii()
-            or not normalized_owner[0].isalnum()
-            or not all(
-                char.isascii() and (char.isalnum() or char == "-")
-                for char in normalized_owner
-            )
-            or normalized_owner.endswith("-")
-            or "--" in normalized_owner
+            not owner
+            or len(owner) > 39
+            or owner.startswith("-")
+            or owner.endswith("-")
+            or "--" in owner
+            or not re.fullmatch(r"[A-Za-z0-9-]+", owner)
         ):
-            raise ValueError("Invalid GitHub owner login.")
+            raise ValueError("Invalid GitHub owner login")
 
-        owner = normalized_owner
+        return owner
+
+    def get_forks(self, owner):
+        """Return all fork repositories owned by a GitHub user or organization."""
+        owner = self._validate_owner_login(owner)
+
         account_url = f"{self.BASE_URL}/users/{owner}"
         account_response = self.session.get(account_url, timeout=self.TIMEOUT)
         account_response.raise_for_status()
@@ -61,7 +66,6 @@ class GitHubClient:
         forks = []
         next_url = repositories_url
         next_params = params
-
         while next_url:
             response = self.session.get(
                 next_url,
