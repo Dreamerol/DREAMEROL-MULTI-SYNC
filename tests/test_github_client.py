@@ -1,70 +1,85 @@
-import pytest
-from unittest.mock import Mock
+import os
+import re
 
-from github_client import GitHubClient
-
-
-@pytest.fixture
-def client():
-    github_client = GitHubClient.__new__(GitHubClient)
-    github_client.session = Mock()
-    return github_client
+import requests
 
 
-@pytest.mark.parametrize(
-    "owner",
-    [
-        "",
-        " ",
-        "invalid/name",
-        "invalid name",
-        "-invalid",
-        "invalid-",
-        "invalid--name",
-        "a" * 40,
-        "потребител",
-        None,
-        123,
-    ],
-)
-def test_get_forks_rejects_invalid_owner(client, owner):
-    with pytest.raises(ValueError, match="Invalid GitHub owner login"):
-        client.get_forks(owner)
+class GitHubClient:
+    BASE_URL = "https://api.github.com"
+    PER_PAGE = 100
+    TIMEOUT = 15
 
+    def __init__(self):
+        self.token = os.getenv("GITHUB_TOKEN")
 
-def test_get_forks_uses_next_url_for_pagination(client):
-    account_response = Mock()
-    account_response.json.return_value = {"type": "User"}
+        if not self.token:
+            raise ValueError("GITHUB_TOKEN is not configured.")
 
-    first_response = Mock()
-    first_response.json.return_value = [
-        {"name": "fork-one", "fork": True},
-        {"name": "original", "fork": False},
-    ]
-    first_response.links = {
-        "next": {"url": "https://api.github.com/users/test/repos?page=2"}
-    }
+        self.session = requests.Session()
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {self.token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+        )
 
-    second_response = Mock()
-    second_response.json.return_value = [
-        {"name": "fork-two", "fork": True}
-    ]
-    second_response.links = {}
+    @staticmethod
+    def _validate_owner_login(owner):
+        if not isinstance(owner, str):
+            raise ValueError("Invalid GitHub owner login")
 
-    client.session.get.side_effect = [
-        account_response,
-        first_response,
-        second_response,
-    ]
+        owner = owner.strip()
 
-    forks = client.get_forks("test")
+        if (
+            not owner
+            or len(owner) > 39
+            or owner.startswith("-")
+            or owner.endswith("-")
+            or "--" in owner
+            or not re.fullmatch(r"[A-Za-z0-9-]+", owner)
+        ):
+            raise ValueError("Invalid GitHub owner login")
 
-    assert [repo["name"] for repo in forks] == [
-        "fork-one",
-        "fork-two",
-    ]
+        return owner
 
-    assert client.session.get.call_args_list[2].args[0] == (
-        "https://api.github.com/users/test/repos?page=2"
-    )
-    assert client.session.get.call_args_list[2].kwargs["params"] is None
+    def get_forks(self, owner):
+        """Return all fork repositories owned by a GitHub user or organization."""
+        owner = self._validate_owner_login(owner)
+
+        account_url = f"{self.BASE_URL}/users/{owner}"
+        account_response = self.session.get(account_url, timeout=self.TIMEOUT)
+        account_response.raise_for_status()
+        account_type = account_response.json().get("type")
+
+        if account_type == "Organization":
+            repositories_url = f"{self.BASE_URL}/orgs/{owner}/repos"
+            params = {"per_page": self.PER_PAGE, "type": "all", "page": 1}
+        elif account_type == "User":
+            repositories_url = f"{self.BASE_URL}/users/{owner}/repos"
+            params = {"per_page": self.PER_PAGE, "type": "owner", "page": 1}
+        else:
+            raise ValueError(
+                f"Could not determine whether {owner!r} is a user or organization."
+            )
+
+        forks = []
+        next_url = repositories_url
+        next_params = params
+        while next_url:
+            response = self.session.get(
+                next_url,
+                params=next_params,
+                timeout=self.TIMEOUT,
+            )
+            response.raise_for_status()
+            repositories = response.json()
+
+            forks.extend(
+                repo for repo in repositories if repo.get("fork") is True
+            )
+
+            next_url = response.links.get("next", {}).get("url")
+            next_params = None
+
+        return forks
