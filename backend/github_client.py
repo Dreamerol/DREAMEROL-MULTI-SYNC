@@ -1,5 +1,4 @@
 import os
-
 import requests
 
 
@@ -40,17 +39,16 @@ class GitHubClient:
             raise ValueError(f"Could not determine whether {owner!r} is a user or organization.")
 
         forks = []
-        url = repositories_url
-
-        while url:
-            response = self.session.get(url, params=params, timeout=self.TIMEOUT)
+        while True:
+            response = self.session.get(repositories_url, params=params, timeout=self.TIMEOUT)
             response.raise_for_status()
             repositories = response.json()
 
             forks.extend(repo for repo in repositories if repo.get("fork") is True)
 
-            # GitHub includes the next page URL in the Link header when one exists.
-            url = response.links.get("next", {}).get("url")
-            params = None  # The next URL already includes its pagination parameters.
+            if "next" not in response.links:
+                break
+
+            params["page"] += 1
 
         return forks
