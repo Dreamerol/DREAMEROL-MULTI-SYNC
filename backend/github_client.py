@@ -45,10 +45,12 @@ class GitHubClient:
             )
 
         forks = []
-        while True:
+        next_url = repositories_url
+        next_params = params
+        while next_url:
             response = self.session.get(
-                repositories_url,
-                params=params,
+                next_url,
+                params=next_params,
                 timeout=self.TIMEOUT,
             )
             response.raise_for_status()
@@ -58,9 +60,7 @@ class GitHubClient:
                 repo for repo in repositories if repo.get("fork") is True
             )
 
-            if "next" not in response.links:
-                break
-
-            params["page"] += 1
+            next_url = response.links.get("next", {}).get("url")
+            next_params = None
 
         return forks
