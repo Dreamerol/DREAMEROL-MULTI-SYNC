@@ -40,15 +40,23 @@ class GitHubClient:
             repositories_url = f"{self.BASE_URL}/users/{owner}/repos"
             params = {"per_page": self.PER_PAGE, "type": "owner", "page": 1}
         else:
-            raise ValueError(f"Could not determine whether {owner!r} is a user or organization.")
+            raise ValueError(
+                f"Could not determine whether {owner!r} is a user or organization."
+            )
 
         forks = []
         while True:
-            response = self.session.get(repositories_url, params=params, timeout=self.TIMEOUT)
+            response = self.session.get(
+                repositories_url,
+                params=params,
+                timeout=self.TIMEOUT,
+            )
             response.raise_for_status()
             repositories = response.json()
 
-            forks.extend(repo for repo in repositories if repo.get("fork") is True)
+            forks.extend(
+                repo for repo in repositories if repo.get("fork") is True
+            )
 
             if "next" not in response.links:
                 break
