@@ -1,8 +1,3 @@
-
-
-
-
-
 <div align="center">
 
 <a href="https://dreamerol.github.io/MIHAELA-KOSEVA-AI/">
@@ -45,11 +40,7 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
-
-
 <br>
-
-
 
 
 
@@ -129,7 +120,6 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
-
 </tr>
 </table>
 
@@ -147,13 +137,9 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 
 
-
-
 <br>
 
 <br>
-
-
 
 
 
@@ -198,36 +184,36 @@ Before getting started, make sure you have:
 
 ### 1. Clone the repository
 
-bash
-git clone ⁨https://github.com/Dreamerol/DREAMEROL-SYNC-FORK.git⁩
+```bash
+git clone https://github.com/Dreamerol/DREAMEROL-SYNC-FORK.git
 cd DREAMEROL-SYNC-FORK
-
+```
 
 ### 2. Create a virtual environment
 
-bash
+```bash
 python -m venv .venv
-
+```
 
 ### 3. Activate the environment
 
 🐧 macOS / Linux
 
-bash
+```bash
 source .venv/bin/activate
-
+```
 
 🪟 Windows PowerShell
 
-powershell
+```powershell
 .venv\Scripts\Activate.ps1
-
+```
 
 ### 4. Install dependencies
 
-bash
+```bash
 pip install -r requirements.txt
-
+```
 
 ---
 
@@ -235,9 +221,9 @@ pip install -r requirements.txt
 
 Create a `.env` file in the project root and configure your GitHub token.
 
-dotenv
+```dotenv
 GITHUB_TOKEN=your_github_token_here
-
+```
 
 You can also use the built-in saved account manager described below.
 
@@ -260,37 +246,37 @@ DREAMEROL SYNC FORK provides two synchronization modes:
 
 Preview all discovered forks without changing repositories or requiring confirmation.
 
-bash
-python ⁨main.py⁩ --dry-run
-
+```bash
+python main.py --dry-run
+```
 
 ### 🎯 Preview Specific Repositories
 
 Preview a selected fork:
 
-bash
-python ⁨main.py⁩ --dry-run --repo octocat/project-fork
-
+```bash
+python main.py --dry-run --repo octocat/project-fork
+```
 
 Select multiple forks by repeating `--repo`:
 
-bash
-python ⁨main.py⁩ --repo octocat/project-fork --repo octocat/another-fork
-
+```bash
+python main.py --dry-run --repo octocat/project-fork --repo octocat/another-fork
+```
 
 ### ⚡ Live Synchronization
 
 To perform an actual synchronization, simply omit `--dry-run`.
 
-bash
-python ⁨main.py⁩
-
+```bash
+python main.py
+```
 
 Or synchronize a specific repository:
 
-bash
-python ⁨main.py⁩ --repo octocat/project-fork
-
+```bash
+python main.py --repo octocat/project-fork
+```
 
 ### 🛡️ Safety Confirmation
 
@@ -300,9 +286,9 @@ For this reason, the application requires explicit confirmation before proceedin
 
 The tool displays the selected repositories and asks you to type:
 
-text
+```text
 SYNC
-
+```
 
 Only the exact confirmation `SYNC` allows the operation to continue.
 
@@ -326,27 +312,27 @@ Tokens are entered without echo and securely stored using your operating system'
 
 ### ➕ Add an Account
 
-bash
-python ⁨main.py⁩ --add-account
-
+```bash
+python main.py --add-account
+```
 
 ### 📋 List Saved Accounts
 
-bash
-python ⁨main.py⁩ --list-accounts
-
+```bash
+python main.py --list-accounts
+```
 
 ### 🔍 Preview Account Repositories
 
-bash
-python ⁨main.py⁩ --dry-run --account octocat
-
+```bash
+python main.py --dry-run --account octocat
+```
 
 ### ⚡ Synchronize an Account
 
-bash
-python ⁨main.py⁩ --account octocat
-
+```bash
+python main.py --account octocat
+```
 
 ### 💡 Account Selection
 
@@ -378,9 +364,9 @@ Each repository receives a status describing the synchronization result.
 
 Run the test suite to verify the application's behavior.
 
-bash
+```bash
 pytest
-
+```
 
 The tests use fakes for GitHub API calls and the system keyring.
 
@@ -392,15 +378,15 @@ The tests use fakes for GitHub API calls and the system keyring.
 
 ## 📁 Project Structure
 
-text
+```text
 DREAMEROL-SYNC-FORK/
 │
-├── ⁨main.py⁩
+├── main.py
 │
 ├── fork_sync/
-│   ├── ⁨accounts.py⁩
-│   ├── ⁨github.py⁩
-│   └── ⁨synchronizer.py⁩
+│   ├── accounts.py
+│   ├── github.py
+│   └── synchronizer.py
 │
 ├── tests/
 │   ├── test_accounts.py
@@ -409,17 +395,17 @@ DREAMEROL-SYNC-FORK/
 │
 ├── requirements.txt
 ├── LICENSE
-└── ⁨readme.md⁩
-
+└── readme.md
+```
 
 ### 🧩 Core Components
 
 | File | Description |
 |:---|:---|
-| `⁨main.py⁩` | CLI, account selection and safety prompts. |
-| `⁨accounts.py⁩` | Keyring-backed account management. |
-| `⁨github.py⁩` | GitHub API client and repository pagination. |
-| `⁨synchronizer.py⁩` | Fork discovery, dry-run and upstream synchronization. |
+| `main.py` | CLI, account selection and safety prompts. |
+| `accounts.py` | Keyring-backed account management. |
+| `github.py` | GitHub API client and repository pagination. |
+| `synchronizer.py` | Fork discovery, dry-run and upstream synchronization. |
 | `test_accounts.py` | Account and keyring behavior tests. |
 | `test_cli.py` | CLI arguments, filters and confirmation tests. |
 | `test_synchronizer.py` | Fork synchronization behavior tests. |
@@ -457,8 +443,6 @@ Synchronize your forks. Simplify your workflow.
 
 
 
-
-
 <br><br><br>
 
 
@@ -466,10 +450,7 @@ Synchronize your forks. Simplify your workflow.
 
 
 
-
-
 <h2 align="center">⭐ Explore repos & star what you find interesting.</h2>
-
 
 
 
@@ -505,11 +486,7 @@ Mihaela Koseva • Sofia University • SMG (СМГ) • Sofia • AI Engineer �
 
 
 
-
-
 <br><br><br>
-
-
 
 
 
@@ -530,11 +507,7 @@ Mihaela Koseva • Sofia University • SMG (СМГ) • Sofia • AI Engineer �
 
 
 
-
-
 <br><br><br>
-
-
 
 
 
@@ -595,10 +568,4 @@ alt="Mihaela Koseva (Михаела Косева), Sofia University (Софий�
 
 
 
-
-
 <br><br><br>
-
-
-
-
