@@ -24,21 +24,20 @@ class GitHubClient:
 
     def get_forks(self, owner):
         """Return all fork repositories owned by a GitHub user or organization."""
+        normalized_owner = owner.strip() if isinstance(owner, str) else ""
+
         if (
             not isinstance(owner, str)
-            or not owner.strip()
-            or len(owner.strip()) > 39
-            or not owner.strip()[0].isalnum()
-            or not all(
-                char.isalnum() or char == "-"
-                for char in owner.strip()
-            )
-            or owner.strip().endswith("-")
-            or "--" in owner.strip()
+            or not normalized_owner
+            or len(normalized_owner) > 39
+            or not normalized_owner[0].isalnum()
+            or not all(char.isalnum() or char == "-" for char in normalized_owner)
+            or normalized_owner.endswith("-")
+            or "--" in normalized_owner
         ):
             raise ValueError("Invalid GitHub owner login.")
 
-        owner = owner.strip()
+        owner = normalized_owner
         account_url = f"{self.BASE_URL}/users/{owner}"
         account_response = self.session.get(account_url, timeout=self.TIMEOUT)
         account_response.raise_for_status()
