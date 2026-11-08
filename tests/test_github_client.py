@@ -5,11 +5,19 @@ import pytest
 import requests
 
 from backend.github_client import GitHubClient
+from fork_sync.github import GitHubClient as ForkGitHubClient
 
 
 @pytest.fixture
 def client():
     github_client = GitHubClient.__new__(GitHubClient)
+    github_client.session = Mock()
+    return github_client
+
+
+@pytest.fixture
+def fork_sync_client():
+    github_client = ForkGitHubClient("test-token")
     github_client.session = Mock()
     return github_client
 
@@ -179,3 +187,54 @@ def test_client_sets_authentication_headers(monkeypatch):
     assert github_client.session.headers["X-GitHub-Api-Version"] == "2022-11-28"
 
     github_client.session.close()
+
+
+def test_compare_upstream_builds_correct_url(fork_sync_client):
+    fork_sync_client._request = Mock(return_value={
+        "status": "diverged",
+        "behind_by": 3,
+    })
+
+    result = fork_sync_client.compare_upstream(
+        fork_full_name="Dreamerol/AI-STUDIO",
+        upstream_full_name="original/AI-STUDIO",
+        upstream_branch="main",
+        fork_branch="main",
+    )
+
+    fork_sync_client._request.assert_called_once_with(
+        "GET",
+        "/repos/Dreamerol/AI-STUDIO/compare/"
+        "original:main...Dreamerol:main",
+    )
+    assert result["behind_by"] == 3
+
+
+def test_compare_upstream_preserves_http_errors(fork_sync_client):
+    error = requests.HTTPError("GitHub API error")
+    fork_sync_client._request = Mock(side_effect=error)
+
+    with pytest.raises(requests.HTTPError) as exc:
+        fork_sync_client.compare_upstream(
+            "Dreamerol/AI-STUDIO",
+            "original/AI-STUDIO",
+            "main",
+            "main",
+        )
+
+    assert exc.value is error
+
+
+def test_merge_upstream_uses_correct_endpoint(fork_sync_client):
+    fork_sync_client._request = Mock(return_value=None)
+
+    fork_sync_client.merge_upstream(
+        "Dreamerol/AI-STUDIO",
+        "main",
+    )
+
+    fork_sync_client._request.assert_called_once_with(
+        "POST",
+        "/repos/Dreamerol/AI-STUDIO/merge-upstream",
+        json={"branch": "main"},
+    )
