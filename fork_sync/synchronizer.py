@@ -239,15 +239,20 @@ class ForkSynchronizer:
             }]
 
         if dry_run:
-            return [
-                {
-                    "repository": repo.get("full_name", "unknown"),
-                    "status": "dry-run",
-                    "message": "Would synchronize fork with upstream.",
-                }
-                for repo in selected_forks
-                if isinstance(repo, dict)
-            ]
+            results = []
+            for repository in selected_forks:
+                try:
+                    result = self.preview_fork(repository)
+                except Exception as error:
+                    result = self._error_result(repository, error)
+
+                if result["status"] == "behind":
+                    result["status"] = "would-sync"
+                    result["message"] = (
+                        f"Would synchronize {result['behind_by']} upstream commit(s)."
+                    )
+                results.append(result)
+            return results
 
         results = []
         for repository in selected_forks:

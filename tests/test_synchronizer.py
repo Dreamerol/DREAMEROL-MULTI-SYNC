@@ -247,9 +247,64 @@ def test_sync_all_handles_repository_discovery_error(synchronizer, github):
     assert results[0]["status"] == "error"
 
 
+@pytest.mark.parametrize(
+    "ahead_by, behind_by, expected_status",
+    [
+        (0, 0, "up-to-date"),
+        (0, 3, "would-sync"),
+        (2, 0, "ahead"),
+        (2, 3, "diverged"),
+    ],
+)
+def test_sync_all_dry_run_previews_actual_status_without_merging(
+    synchronizer, github, differently_named_fork, ahead_by, behind_by, expected_status
+):
+    github.compare_upstream.return_value = {
+        "ahead_by": ahead_by,
+        "behind_by": behind_by,
+        "status": "unused",
+    }
+
+    results = synchronizer.sync_all(forks=[differently_named_fork], dry_run=True)
+
+    assert results[0]["status"] == expected_status
+    assert results[0]["repository"] == "octocat/demo-fork"
+    assert results[0]["ahead_by"] == ahead_by
+    assert results[0]["behind_by"] == behind_by
+    github.compare_upstream.assert_called_once_with(
+        fork_full_name="octocat/demo-fork",
+        upstream_full_name="octodemo/upstream-repo",
+        upstream_branch="main",
+        fork_branch="master",
+    )
+    github.merge_upstream.assert_not_called()
+
+
+def test_sync_all_dry_run_reports_invalid_compare_response(synchronizer, github, fork):
+    github.compare_upstream.return_value = {"ahead_by": 0, "behind_by": "invalid"}
+
+    results = synchronizer.sync_all(forks=[fork], dry_run=True)
+
+    assert len(results) == 1
+    assert results[0]["status"] == "error"
+    assert results[0]["repository"] == "Dreamerol/AI-STUDIO"
+    github.merge_upstream.assert_not_called()
+
+
+def test_sync_all_dry_run_reports_github_api_error(synchronizer, github, fork):
+    github.compare_upstream.side_effect = requests.ConnectionError("Connection failed")
+
+    results = synchronizer.sync_all(forks=[fork], dry_run=True)
+
+    assert len(results) == 1
+    assert results[0]["status"] == "error"
+    assert "Connection failed" in results[0]["message"]
+    github.merge_upstream.assert_not_called()
+
+
 def test_sync_all_dry_run_does_not_merge(synchronizer, github, fork):
     results = synchronizer.sync_all(forks=[fork], dry_run=True)
 
-    assert results[0]["status"] == "dry-run"
-    github.compare_upstream.assert_not_called()
+    assert results[0]["status"] == "would-sync"
+    github.compare_upstream.assert_called_once()
     github.merge_upstream.assert_not_called()
