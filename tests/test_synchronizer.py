@@ -41,7 +41,14 @@ def fork():
 
 def test_get_forks_returns_only_forks(synchronizer, github):
     github.list_repositories.return_value = [
-        {"full_name": "user/fork", "fork": True, "parent": {}},
+        {
+            "full_name": "user/fork",
+            "fork": True,
+            "parent": {
+                "full_name": "original/fork",
+                "default_branch": "main",
+            },
+        },
         {"full_name": "user/original", "fork": False},
         {"full_name": "user/another", "fork": True},
         "invalid",
@@ -106,6 +113,7 @@ def test_sync_fork_when_behind_upstream(
         {"behind_by": "3"},
         {"behind_by": -1},
         {"behind_by": True},
+        {"behind_by": False},
     ],
 )
 def test_sync_fork_rejects_invalid_behind_by(
