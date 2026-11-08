@@ -94,9 +94,13 @@ def test_live_sync_processes_only_selected_forks_that_are_behind(
         "up-to-date",
     ]
 
+    
     assert synchronizer.preview_fork.call_count == 2
     synchronizer.preview_fork.assert_any_call(behind_fork)
     synchronizer.preview_fork.assert_any_call(current_fork)
 
-    synchronizer.sync_all.assert_called_once_with(forks=[behind_fork])
+    synchronizer.sync_all.assert_called_once_with(
+        forks=[behind_fork]
+    )
+
     github.session.close.assert_called_once_with()
