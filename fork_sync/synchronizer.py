@@ -89,8 +89,15 @@ class ForkSynchronizer:
             if not isinstance(comparison, dict):
                 raise ValueError("Invalid comparison data returned by GitHub.")
 
-            behind_by = comparison.get("behind_by", 0)
-            if behind_by == 0:
+            behind_by = comparison.get("behind_by")
+            if behind_by is None:
+                raise ValueError("Comparison response is missing behind_by.")
+            try:
+                behind_by = int(behind_by)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Comparison response has an invalid behind_by value.") from exc
+
+            if behind_by <= 0:
                 return {
                     "repository": full_name,
                     "status": "up-to-date",
