@@ -51,6 +51,7 @@ def test_get_forks_returns_only_forks(synchronizer, github):
         },
         {"full_name": "user/original", "fork": False},
         {"full_name": "user/another", "fork": True},
+        {"full_name": "user/incomplete-parent", "fork": True, "parent": {}},
         "invalid",
     ]
 

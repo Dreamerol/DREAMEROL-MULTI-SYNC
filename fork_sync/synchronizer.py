@@ -10,17 +10,33 @@ class ForkSynchronizer:
         self.github = github_client
 
     def get_forks(self):
-        """Find all forks belonging to the authenticated account."""
+        """Find valid forks belonging to the authenticated account."""
         repositories = self.github.list_repositories()
         if not isinstance(repositories, list):
             raise ValueError("Invalid repository list returned by GitHub.")
-        return [
-            repository
-            for repository in repositories
-            if isinstance(repository, dict)
-            and repository.get("fork")
-            and repository.get("parent")
-        ]
+
+        forks = []
+        for repository in repositories:
+            if not isinstance(repository, dict) or not repository.get("fork"):
+                continue
+
+            parent = repository.get("parent")
+            if not isinstance(parent, dict):
+                continue
+
+            upstream_full_name = parent.get("full_name")
+            upstream_branch = parent.get("default_branch")
+            if (
+                not isinstance(upstream_full_name, str)
+                or not upstream_full_name.strip()
+                or not isinstance(upstream_branch, str)
+                or not upstream_branch.strip()
+            ):
+                continue
+
+            forks.append(repository)
+
+        return forks
 
     def sync_fork(self, repo):
         """Sync a fork only when its default branch is behind upstream."""
