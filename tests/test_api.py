@@ -259,7 +259,7 @@ def test_successful_live_sync_only_sends_selected_freshly_behind_forks(client, m
     ]
     synchronizer.preview_fork.assert_any_call(behind_fork)
     synchronizer.preview_fork.assert_any_call(current_fork)
-    synchronizer.preview_fork.assert_called_once_with(behind_fork)
+    assert synchronizer.preview_fork.call_count == 2
     synchronizer.sync_all.assert_called_once_with(forks=[behind_fork])
     github_client.session.close.assert_called_once_with()
 
