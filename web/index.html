@@ -5,92 +5,58 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#10141d">
-    <title>Dreamerol | Fork Dashboard</title>
-    <link rel="stylesheet" href="style.css">
+    <title>DREAMEROL | FORK SYNC</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/app.js" defer></script>
 </head>
 <body>
+    <main class="login-container">
+        <div class="brand">
+            <div class="brand-mark">D</div>
+            <h1>DREAMEROL</h1>
+            <p>GITHUB FORK SYNCHRONIZATION</p>
+        </div>
 
-    <header class="topbar">
-        <a class="brand" href="#">
-            <span class="brand-mark">D</span>
-            <span>DREAMEROL <small>FORK SYNC</small></span>
-        </a>
-
-        <span class="connection-status">
-            <span class="status-dot"></span>
-            DEMO MODE
-        </span>
-    </header>
-
-    <main class="container">
-
-        <section class="hero">
-            <p class="eyebrow">GITHUB REPOSITORY MANAGEMENT</p>
-            <h1>Fork <span>Dashboard</span></h1>
+        <section class="sync-panel">
+            <h2>Connect & Sync</h2>
             <p class="subtitle">
-                Explore, monitor and manage your GitHub forks
-                from one place.
+                Synchronize your GitHub forks automatically.
             </p>
-        </section>
 
-        <section class="stats-grid">
-            <article class="stat-card">
-                <span class="stat-label">TOTAL FORKS</span>
-                <strong id="total-forks">0</strong>
-                <span class="stat-note">Repositories detected</span>
-            </article>
-
-            <article class="stat-card">
-                <span class="stat-label">UP TO DATE</span>
-                <strong id="up-to-date">0</strong>
-                <span class="stat-note">No pending changes</span>
-            </article>
-
-            <article class="stat-card">
-                <span class="stat-label">BEHIND UPSTREAM</span>
-                <strong id="behind">0</strong>
-                <span class="stat-note">Updates available</span>
-            </article>
-        </section>
-
-        <section class="repositories">
-            <div class="section-heading">
-                <div>
-                    <p class="eyebrow">YOUR REPOSITORIES</p>
-                    <h2>Fork Collection</h2>
-                </div>
-
-                <span class="repo-count" id="repo-count">0 repositories</span>
-            </div>
-
-            <div class="toolbar">
+            <form id="sync-form">
+                <label for="email">Email</label>
                 <input
-                    type="search"
-                    id="search"
-                    placeholder="Search repositories..."
-                    aria-label="Search repositories"
+                    type="email"
+                    id="email"
+                    placeholder="Enter your email"
+                    autocomplete="username"
+                    required
                 >
 
-                <select id="filter" aria-label="Filter repositories">
-                    <option value="all">All repositories</option>
-                    <option value="up-to-date">Up to date</option>
-                    <option value="behind">Behind upstream</option>
-                </select>
+                <label for="password">Password</label>
+                <input
+                    type="password"
+                    id="password"
+                    placeholder="Enter your password"
+                    autocomplete="current-password"
+                    required
+                >
+
+                <button type="submit" id="sync-button">
+                    <span id="button-text">⟳ SYNC</span>
+                </button>
+            </form>
+
+            <div id="sync-status" role="status" aria-live="polite">
+                Ready to synchronize.
             </div>
 
-            <div class="repository-list" id="repository-list">
-                <p class="empty-state">Loading repositories...</p>
-            </div>
+            <div id="sync-results"></div>
         </section>
 
         <footer>
-            <span>DREAMEROL · FORK SYNC</span>
-            <span>Independent repository dashboard</span>
+            DREAMEROL · FORK SYNC
         </footer>
-
     </main>
-
-    <script src="app.js"></script>
 </body>
 </html>
-
