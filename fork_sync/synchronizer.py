@@ -242,16 +242,9 @@ class ForkSynchronizer:
             results = []
             for repository in selected_forks:
                 try:
-                    result = self.preview_fork(repository)
+                    results.append(self.preview_fork(repository))
                 except Exception as error:
-                    result = self._error_result(repository, error)
-
-                if result["status"] == "behind":
-                    result["status"] = "would-sync"
-                    result["message"] = (
-                        f"Would synchronize {result['behind_by']} upstream commit(s)."
-                    )
-                results.append(result)
+                    results.append(self._error_result(repository, error))
             return results
 
         results = []

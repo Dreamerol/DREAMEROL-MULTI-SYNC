@@ -251,7 +251,7 @@ def test_sync_all_handles_repository_discovery_error(synchronizer, github):
     "ahead_by, behind_by, expected_status",
     [
         (0, 0, "up-to-date"),
-        (0, 3, "would-sync"),
+        (0, 3, "behind"),
         (2, 0, "ahead"),
         (2, 3, "diverged"),
     ],
@@ -305,6 +305,6 @@ def test_sync_all_dry_run_reports_github_api_error(synchronizer, github, fork):
 def test_sync_all_dry_run_does_not_merge(synchronizer, github, fork):
     results = synchronizer.sync_all(forks=[fork], dry_run=True)
 
-    assert results[0]["status"] == "would-sync"
+    assert results[0]["status"] == "behind"
     github.compare_upstream.assert_called_once()
     github.merge_upstream.assert_not_called()
