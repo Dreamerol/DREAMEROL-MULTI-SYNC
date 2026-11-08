@@ -75,11 +75,19 @@ class ForkSynchronizer:
         if not isinstance(comparison, dict):
             raise ValueError("Invalid comparison data returned by GitHub.")
 
+        ahead_by = comparison.get("ahead_by")
         behind_by = comparison.get("behind_by")
-        if isinstance(behind_by, bool) or not isinstance(behind_by, int) or behind_by < 0:
-            raise ValueError("Invalid behind_by value returned by GitHub.")
+        if (
+            isinstance(ahead_by, bool)
+            or not isinstance(ahead_by, int)
+            or ahead_by < 0
+            or isinstance(behind_by, bool)
+            or not isinstance(behind_by, int)
+            or behind_by < 0
+        ):
+            raise ValueError("Invalid comparison counts returned by GitHub.")
 
-        return full_name, upstream_branch.strip(), behind_by
+        return full_name, fork_branch.strip(), upstream_branch.strip(), ahead_by, behind_by
 
     @staticmethod
     def _error_result(repo, error):
@@ -97,19 +105,37 @@ class ForkSynchronizer:
     def preview_fork(self, repo):
         """Read-only status check for one fork; no synchronization request is sent."""
         try:
-            full_name, _, behind_by = self._compare_fork(repo)
-            if behind_by == 0:
+            full_name, _, _, ahead_by, behind_by = self._compare_fork(repo)
+            if behind_by == 0 and ahead_by == 0:
                 return {
                     "repository": full_name,
                     "status": "up-to-date",
                     "message": "No changes.",
                     "behind_by": 0,
+                    "ahead_by": 0,
+                }
+            if behind_by > 0 and ahead_by == 0:
+                return {
+                    "repository": full_name,
+                    "status": "behind",
+                    "message": f"{behind_by} upstream commit(s) available.",
+                    "behind_by": behind_by,
+                    "ahead_by": ahead_by,
+                }
+            if ahead_by > 0 and behind_by == 0:
+                return {
+                    "repository": full_name,
+                    "status": "ahead",
+                    "message": "Fork has local commits and is not safe to merge.",
+                    "behind_by": behind_by,
+                    "ahead_by": ahead_by,
                 }
             return {
                 "repository": full_name,
-                "status": "behind",
-                "message": f"{behind_by} upstream commit(s) available.",
+                "status": "diverged",
+                "message": "Fork and upstream have diverged; no automatic sync.",
                 "behind_by": behind_by,
+                "ahead_by": ahead_by,
             }
         except (
             requests.exceptions.RequestException,
@@ -137,23 +163,49 @@ class ForkSynchronizer:
         return [self.preview_fork(repository) for repository in selected_forks]
 
     def sync_fork(self, repo):
-        """Sync a fork only when its default branch is behind upstream."""
+        """Sync a fork only when its default branch is behind upstream and safe to update."""
         try:
-            full_name, upstream_branch, behind_by = self._compare_fork(repo)
-            if behind_by == 0:
+            full_name, fork_branch, _, ahead_by, behind_by = self._compare_fork(repo)
+            if behind_by == 0 and ahead_by == 0:
                 return {
                     "repository": full_name,
                     "status": "up-to-date",
                     "message": "No changes.",
                     "behind_by": 0,
+                    "ahead_by": 0,
+                }
+            if ahead_by > 0 and behind_by == 0:
+                return {
+                    "repository": full_name,
+                    "status": "ahead",
+                    "message": "Fork has local commits and is not safe to merge.",
+                    "behind_by": behind_by,
+                    "ahead_by": ahead_by,
+                }
+            if behind_by > 0 and ahead_by > 0:
+                return {
+                    "repository": full_name,
+                    "status": "diverged",
+                    "message": "Fork and upstream have diverged; no automatic sync.",
+                    "behind_by": behind_by,
+                    "ahead_by": ahead_by,
+                }
+            if behind_by <= 0:
+                return {
+                    "repository": full_name,
+                    "status": "up-to-date",
+                    "message": "No synchronized refresh required.",
+                    "behind_by": behind_by,
+                    "ahead_by": ahead_by,
                 }
 
-            self.github.merge_upstream(full_name, upstream_branch)
+            self.github.merge_upstream(full_name, fork_branch)
             return {
                 "repository": full_name,
                 "status": "synced",
                 "message": f"Synced {behind_by} upstream commits.",
                 "behind_by": behind_by,
+                "ahead_by": ahead_by,
             }
         except requests.exceptions.HTTPError as error:
             status_code = error.response.status_code if error.response is not None else None
@@ -202,6 +254,5 @@ class ForkSynchronizer:
             try:
                 results.append(self.sync_fork(repository))
             except Exception as error:
-                # Keep an unexpected per-repository failure from stopping the batch.
                 results.append(self._error_result(repository, error))
         return results

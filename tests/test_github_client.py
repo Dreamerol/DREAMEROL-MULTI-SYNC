@@ -80,7 +80,6 @@ def test_validate_owner_login_accepts_valid_values(owner, expected):
 def test_get_forks_uses_next_url_for_pagination(client):
     account_response = Mock()
     account_response.json.return_value = {"type": "User"}
-
     first_response = Mock()
     first_response.json.return_value = [
         {"name": "fork-one", "fork": True},
@@ -89,16 +88,10 @@ def test_get_forks_uses_next_url_for_pagination(client):
     first_response.links = {
         "next": {"url": "https://api.github.com/users/test/repos?page=2"}
     }
-
     second_response = Mock()
     second_response.json.return_value = [{"name": "fork-two", "fork": True}]
     second_response.links = {}
-
-    client.session.get.side_effect = [
-        account_response,
-        first_response,
-        second_response,
-    ]
+    client.session.get.side_effect = [account_response, first_response, second_response]
 
     forks = client.get_forks("test")
 
@@ -151,9 +144,7 @@ def test_get_forks_preserves_http_errors(client, request_number):
 
 def test_get_forks_propagates_json_decode_errors(client):
     account_response = Mock()
-    account_response.json.side_effect = json.JSONDecodeError(
-        "Invalid JSON", "", 0
-    )
+    account_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
     client.session.get.return_value = account_response
 
     with pytest.raises(json.JSONDecodeError):
@@ -179,7 +170,6 @@ def test_client_requires_github_token(monkeypatch):
 
 def test_client_sets_authentication_headers(monkeypatch):
     monkeypatch.setenv("GITHUB_TOKEN", "test-token")
-
     github_client = GitHubClient()
 
     assert github_client.session.headers["Authorization"] == "Bearer test-token"
@@ -196,16 +186,15 @@ def test_compare_upstream_builds_correct_url(fork_sync_client):
     })
 
     result = fork_sync_client.compare_upstream(
-        fork_full_name="Dreamerol/AI-STUDIO",
-        upstream_full_name="original/AI-STUDIO",
+        fork_full_name="octocat/demo-fork",
+        upstream_full_name="octodemo/upstream-repo",
         upstream_branch="main",
-        fork_branch="main",
+        fork_branch="master",
     )
 
     fork_sync_client._request.assert_called_once_with(
         "GET",
-        "/repos/Dreamerol/AI-STUDIO/compare/"
-        "original:main...Dreamerol:main",
+        "/repos/octocat/demo-fork/compare/octodemo:main...octocat:master",
     )
     assert result["behind_by"] == 3
 
@@ -228,13 +217,10 @@ def test_compare_upstream_preserves_http_errors(fork_sync_client):
 def test_merge_upstream_uses_correct_endpoint(fork_sync_client):
     fork_sync_client._request = Mock(return_value=None)
 
-    fork_sync_client.merge_upstream(
-        "Dreamerol/AI-STUDIO",
-        "main",
-    )
+    fork_sync_client.merge_upstream("octocat/demo-fork", "master")
 
     fork_sync_client._request.assert_called_once_with(
         "POST",
-        "/repos/Dreamerol/AI-STUDIO/merge-upstream",
-        json={"branch": "main"},
+        "/repos/octocat/demo-fork/merge-upstream",
+        json={"branch": "master"},
     )
