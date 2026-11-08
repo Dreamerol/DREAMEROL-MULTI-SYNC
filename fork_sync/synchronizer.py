@@ -38,47 +38,24 @@ class ForkSynchronizer:
 
         return forks
 
-    def sync_fork(self, repo):
-        """Sync a fork only when its default branch is behind upstream."""
+    def _compare_fork(self, repo):
+        """Validate fork metadata and compare its branch with its upstream."""
         if not isinstance(repo, dict):
-            return {
-                "repository": "unknown",
-                "status": "error",
-                "message": "Invalid repository data.",
-            }
+            raise ValueError("Invalid repository data.")
 
         full_name = repo.get("full_name")
         fork_branch = repo.get("default_branch")
         parent = repo.get("parent")
-        upstream_full_name = (
-            parent.get("full_name") if isinstance(parent, dict) else None
-        )
-        upstream_branch = (
-            parent.get("default_branch") if isinstance(parent, dict) else None
-        )
+        upstream_full_name = parent.get("full_name") if isinstance(parent, dict) else None
+        upstream_branch = parent.get("default_branch") if isinstance(parent, dict) else None
 
         if not isinstance(full_name, str) or not full_name.strip():
-            return {
-                "repository": "unknown",
-                "status": "error",
-                "message": "Missing or invalid repository full_name.",
-            }
+            raise ValueError("Missing or invalid repository full_name.")
         full_name = full_name.strip()
         if full_name.count("/") != 1 or not all(full_name.split("/", 1)):
-            return {
-                "repository": full_name,
-                "status": "error",
-                "message": "Invalid repository full_name.",
-            }
-
+            raise ValueError("Invalid repository full_name.")
         if not isinstance(fork_branch, str) or not fork_branch.strip():
-            return {
-                "repository": full_name,
-                "status": "error",
-                "message": "Missing or invalid default branch.",
-            }
-        fork_branch = fork_branch.strip()
-
+            raise ValueError("Missing or invalid default branch.")
         if (
             not isinstance(upstream_full_name, str)
             or not upstream_full_name.strip()
@@ -87,38 +64,88 @@ class ForkSynchronizer:
             or not isinstance(upstream_branch, str)
             or not upstream_branch.strip()
         ):
-            return {
-                "repository": full_name,
-                "status": "error",
-                "message": "Missing upstream branch information.",
-            }
-        upstream_full_name = upstream_full_name.strip()
-        upstream_branch = upstream_branch.strip()
+            raise ValueError("Missing upstream branch information.")
 
+        comparison = self.github.compare_upstream(
+            fork_full_name=full_name,
+            upstream_full_name=upstream_full_name.strip(),
+            upstream_branch=upstream_branch.strip(),
+            fork_branch=fork_branch.strip(),
+        )
+        if not isinstance(comparison, dict):
+            raise ValueError("Invalid comparison data returned by GitHub.")
+
+        behind_by = comparison.get("behind_by")
+        if isinstance(behind_by, bool) or not isinstance(behind_by, int) or behind_by < 0:
+            raise ValueError("Invalid behind_by value returned by GitHub.")
+
+        return full_name, upstream_branch.strip(), behind_by
+
+    @staticmethod
+    def _error_result(repo, error):
+        full_name = (
+            repo.get("full_name", "unknown")
+            if isinstance(repo, dict)
+            else "unknown"
+        )
+        return {
+            "repository": full_name,
+            "status": "error",
+            "message": str(error),
+        }
+
+    def preview_fork(self, repo):
+        """Read-only status check for one fork; no synchronization request is sent."""
         try:
-            comparison = self.github.compare_upstream(
-                fork_full_name=full_name,
-                upstream_full_name=upstream_full_name,
-                upstream_branch=upstream_branch,
-                fork_branch=fork_branch,
-            )
-            if not isinstance(comparison, dict):
-                raise ValueError("Invalid comparison data returned by GitHub.")
-
-            behind_by = comparison.get("behind_by")
-            if (
-                isinstance(behind_by, bool)
-                or not isinstance(behind_by, int)
-                or behind_by < 0
-            ):
-                raise ValueError(
-                    "Invalid behind_by value returned by GitHub."
-                )
+            full_name, _, behind_by = self._compare_fork(repo)
             if behind_by == 0:
                 return {
                     "repository": full_name,
                     "status": "up-to-date",
                     "message": "No changes.",
+                    "behind_by": 0,
+                }
+            return {
+                "repository": full_name,
+                "status": "behind",
+                "message": f"{behind_by} upstream commit(s) available.",
+                "behind_by": behind_by,
+            }
+        except (
+            requests.exceptions.RequestException,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as error:
+            return self._error_result(repo, error)
+
+    def preview_all(self, forks=None):
+        """Discover and compare forks without changing any repository."""
+        try:
+            selected_forks = forks if forks is not None else self.get_forks()
+        except (
+            requests.exceptions.RequestException,
+            ValueError,
+            TypeError,
+        ) as error:
+            return [{
+                "repository": "account",
+                "status": "error",
+                "message": str(error),
+            }]
+
+        return [self.preview_fork(repository) for repository in selected_forks]
+
+    def sync_fork(self, repo):
+        """Sync a fork only when its default branch is behind upstream."""
+        try:
+            full_name, upstream_branch, behind_by = self._compare_fork(repo)
+            if behind_by == 0:
+                return {
+                    "repository": full_name,
+                    "status": "up-to-date",
+                    "message": "No changes.",
+                    "behind_by": 0,
                 }
 
             self.github.merge_upstream(full_name, upstream_branch)
@@ -126,13 +153,11 @@ class ForkSynchronizer:
                 "repository": full_name,
                 "status": "synced",
                 "message": f"Synced {behind_by} upstream commits.",
+                "behind_by": behind_by,
             }
         except requests.exceptions.HTTPError as error:
-            status_code = (
-                error.response.status_code
-                if error.response is not None
-                else None
-            )
+            status_code = error.response.status_code if error.response is not None else None
+            full_name = repo.get("full_name", "unknown") if isinstance(repo, dict) else "unknown"
             return {
                 "repository": full_name,
                 "status": "conflict" if status_code == 409 else "error",
@@ -144,11 +169,7 @@ class ForkSynchronizer:
             KeyError,
             TypeError,
         ) as error:
-            return {
-                "repository": full_name,
-                "status": "error",
-                "message": str(error),
-            }
+            return self._error_result(repo, error)
 
     def sync_all(self, forks=None, dry_run=False):
         """Process each fork independently so one failure cannot stop others."""
@@ -182,14 +203,5 @@ class ForkSynchronizer:
                 results.append(self.sync_fork(repository))
             except Exception as error:
                 # Keep an unexpected per-repository failure from stopping the batch.
-                full_name = (
-                    repository.get("full_name", "unknown")
-                    if isinstance(repository, dict)
-                    else "unknown"
-                )
-                results.append({
-                    "repository": full_name,
-                    "status": "error",
-                    "message": str(error),
-                })
+                results.append(self._error_result(repository, error))
         return results

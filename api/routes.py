@@ -18,6 +18,7 @@ class SyncResult(BaseModel):
     repository: str
     status: str
     message: str | None = None
+    behind_by: int | None = None
 
 
 class SyncResponse(BaseModel):
@@ -31,7 +32,7 @@ def sync_repositories(
     request: SyncRequest,
     authorization: str | None = Header(default=None),
 ):
-    """Preview forks or synchronize only the explicitly previewed forks."""
+    """Preview fork status or sync only the explicitly confirmed, lagging forks."""
     if not authorization:
         raise HTTPException(
             status_code=401,
@@ -86,27 +87,55 @@ def sync_repositories(
 
         synchronizer = ForkSynchronizer(client)
         if request.dry_run:
-            results = synchronizer.sync_all(dry_run=True)
+            # This performs read-only comparisons; it never submits a merge request.
+            results = synchronizer.preview_all()
         else:
             try:
                 current_forks = synchronizer.get_forks()
             except RequestException as error:
                 raise HTTPException(status_code=502, detail="Could not load forks from GitHub.") from error
+
             available = {
                 fork.get("full_name")
                 for fork in current_forks
-                if isinstance(fork.get("full_name"), str)
+                if isinstance(fork, dict) and isinstance(fork.get("full_name"), str)
             }
             if any(repository not in available for repository in request.repositories):
                 raise HTTPException(
                     status_code=400,
                     detail="A selected repository is no longer an available fork for this account. Preview again.",
                 )
-            selected = set(request.repositories)
+
+            selected_names = set(request.repositories)
             selected_forks = [
-                fork for fork in current_forks if fork.get("full_name") in selected
+                fork for fork in current_forks
+                if fork.get("full_name") in selected_names
             ]
-            results = synchronizer.sync_all(forks=selected_forks)
+
+            # Recheck status on the server so stale or edited browser requests cannot
+            # cause an up-to-date fork to be sent to the merge-upstream endpoint.
+            preview_by_name = {
+                result["repository"]: result
+                for result in (
+                    synchronizer.preview_fork(fork) for fork in selected_forks
+                )
+            }
+            behind_forks = [
+                fork for fork in selected_forks
+                if preview_by_name[fork["full_name"]]["status"] == "behind"
+            ]
+            sync_results = synchronizer.sync_all(forks=behind_forks)
+            sync_by_name = {result["repository"]: result for result in sync_results}
+
+            results = []
+            for repository in request.repositories:
+                preview = preview_by_name[repository]
+                if preview["status"] == "behind":
+                    # If the second comparison changes state, sync_fork reports the
+                    # final status; otherwise this is the per-repository sync result.
+                    results.append(sync_by_name.get(repository, preview))
+                else:
+                    results.append(preview)
 
         return SyncResponse(account=account, total=len(results), results=results)
     finally:

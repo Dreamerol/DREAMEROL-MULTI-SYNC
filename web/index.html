@@ -18,7 +18,7 @@
 
         <section class="sync-panel" aria-labelledby="sync-heading">
             <h2 id="sync-heading">Connect &amp; Sync</h2>
-            <p class="subtitle">Preview your forks before synchronizing them with their upstream repositories.</p>
+            <p class="subtitle">Preview every fork against upstream before synchronizing only repositories that are behind.</p>
 
             <form id="sync-form">
                 <label for="github-token">GitHub personal access token</label>
@@ -43,7 +43,7 @@
             </form>
 
             <button type="button" id="sync-button" class="secondary-button" hidden>
-                Confirm and sync selected forks
+                SYNC lagging forks
             </button>
 
             <div id="sync-status" role="status" aria-live="polite">

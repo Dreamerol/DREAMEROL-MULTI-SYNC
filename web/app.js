@@ -15,7 +15,9 @@ function renderResults(results) {
     results.forEach((result) => {
         const item = document.createElement("div");
         item.className = "result-item";
+        item.dataset.status = result.status;
         item.textContent = `${result.repository}: ${result.status}` +
+            (Number.isInteger(result.behind_by) ? ` (${result.behind_by} behind)` : "") +
             (result.message ? ` — ${result.message}` : "");
         resultsBox.appendChild(item);
     });
@@ -61,17 +63,23 @@ form.addEventListener("submit", async (event) => {
     activeToken = tokenInput.value.trim();
     tokenInput.value = "";
     setBusy(true, "Checking GitHub…");
-    statusBox.textContent = "Checking your GitHub token and previewing forks…";
+    statusBox.textContent = "Checking your GitHub token and comparing forks with upstream…";
 
     try {
         const data = await requestSync({ dry_run: true });
         renderResults(data.results);
-        statusBox.textContent = `Preview for ${data.account}: ${data.total} fork(s) checked. No repositories were changed.`;
-        previewReady = data.total > 0 && data.results.every((result) => result.status === "dry-run");
-        previewRepositories = previewReady ? data.results.map((result) => result.repository) : [];
+
+        const behindResults = data.results.filter((result) => result.status === "behind");
+        const upToDateCount = data.results.filter((result) => result.status === "up-to-date").length;
+        const errorCount = data.results.filter((result) => result.status === "error").length;
+        previewRepositories = behindResults.map((result) => result.repository);
+        previewReady = previewRepositories.length > 0;
         syncButton.hidden = !previewReady;
+
+        statusBox.textContent = `GitHub account: ${data.account}. ${behindResults.length} behind, ${upToDateCount} up to date` +
+            (errorCount ? `, ${errorCount} could not be checked` : "") + ". No repositories were changed.";
         if (data.total === 0) {
-            statusBox.textContent = `No forks found for ${data.account}.`;
+            statusBox.textContent = `No fork repositories found for ${data.account}.`;
         }
     } catch (error) {
         activeToken = "";
@@ -84,7 +92,9 @@ form.addEventListener("submit", async (event) => {
 syncButton.addEventListener("click", async () => {
     if (!previewReady || previewRepositories.length === 0 || !activeToken) return;
 
-    const confirmation = window.prompt('This will update the listed forks. Type SYNC to continue:');
+    const confirmation = window.prompt(
+        `This will synchronize ${previewRepositories.length} fork(s) shown as behind. Type SYNC to continue:`
+    );
     if (confirmation !== "SYNC") {
         statusBox.textContent = "Synchronization cancelled. No repositories were changed.";
         activeToken = "";
@@ -97,7 +107,7 @@ syncButton.addEventListener("click", async () => {
     previewReady = false;
     syncButton.hidden = true;
     setBusy(true, "Synchronizing…");
-    statusBox.textContent = "Synchronizing only the forks shown in the preview…";
+    statusBox.textContent = "Rechecking and synchronizing only the forks that are still behind…";
 
     try {
         const data = await requestSync({
@@ -106,7 +116,13 @@ syncButton.addEventListener("click", async () => {
             repositories: previewRepositories
         });
         renderResults(data.results);
-        statusBox.textContent = `Completed for ${data.account}. Processed ${data.total} fork(s).`;
+        const synced = data.results.filter((result) => result.status === "synced").length;
+        const upToDate = data.results.filter((result) => result.status === "up-to-date").length;
+        const errors = data.results.filter(
+            (result) => result.status === "error" || result.status === "conflict"
+        ).length;
+        statusBox.textContent = `Completed for ${data.account}: ${synced} synchronized, ${upToDate} already up to date` +
+            (errors ? `, ${errors} failed or conflicted` : "") + ".";
     } catch (error) {
         statusBox.textContent = error.message || "Could not connect to the server.";
     } finally {
