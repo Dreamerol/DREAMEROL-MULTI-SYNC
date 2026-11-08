@@ -1,4 +1,3 @@
-
 """GitHub API client for repository management."""
 
 import requests
@@ -65,6 +64,41 @@ class GitHubClient:
             page += 1
 
         return repositories
+
+    def compare_upstream(
+        self,
+        fork_full_name: str,
+        upstream_full_name: str,
+        upstream_branch: str,
+        fork_branch: str,
+    ):
+        """Compare a fork branch with its upstream branch.
+
+        GitHub compare API expects the `basehead` form:
+        "UPSTREAM_OWNER:BRANCH...FORK_OWNER:BRANCH"
+        when comparing a fork against its parent repository.
+        """
+        if not isinstance(fork_full_name, str) or not fork_full_name.strip():
+            raise ValueError("Fork full_name is required.")
+        if not isinstance(upstream_full_name, str) or not upstream_full_name.strip():
+            raise ValueError("Upstream full_name is required.")
+        if not isinstance(upstream_branch, str) or not upstream_branch.strip():
+            raise ValueError("Upstream branch is required.")
+        if not isinstance(fork_branch, str) or not fork_branch.strip():
+            raise ValueError("Fork branch is required.")
+
+        fork_owner, fork_name = fork_full_name.split("/", 1)
+        upstream_owner, _ = upstream_full_name.split("/", 1)
+
+        basehead = (
+            f"{upstream_owner}:{upstream_branch.strip()}..."
+            f"{fork_owner}:{fork_branch.strip()}"
+        )
+
+        return self._request(
+            "GET",
+            f"/repos/{fork_owner}/{fork_name}/compare/{basehead}",
+        )
 
     def merge_upstream(self, full_name: str, branch: str):
         """Merge the upstream branch into a fork."""
