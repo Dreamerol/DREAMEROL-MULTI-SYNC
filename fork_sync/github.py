@@ -66,6 +66,25 @@ class GitHubClient:
 
         return repositories
 
+    def compare_upstream(
+        self,
+        fork_full_name: str,
+        upstream_full_name: str,
+        upstream_branch: str,
+        fork_branch: str,
+    ):
+        """Compare a fork branch with its upstream branch."""
+        fork_owner, fork_name = fork_full_name.split("/", 1)
+        upstream_owner, _ = upstream_full_name.split("/", 1)
+        comparison = (
+            f"{upstream_owner}:{upstream_branch}..."
+            f"{fork_owner}:{fork_branch}"
+        )
+        return self._request(
+            "GET",
+            f"/repos/{fork_owner}/{fork_name}/compare/{comparison}",
+        )
+
     def merge_upstream(self, full_name: str, branch: str):
         """Merge the upstream branch into a fork."""
         owner, name = full_name.split("/", 1)
