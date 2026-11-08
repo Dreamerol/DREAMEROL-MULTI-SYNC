@@ -223,6 +223,7 @@ class ForkSynchronizer:
         ) as error:
             return self._error_result(repo, error)
 
+  
     def sync_all(self, forks=None, dry_run=False):
         """Process each fork independently so one failure cannot stop others."""
         try:
