@@ -1,295 +1,148 @@
 
-:root {
-    --background: #10141d;
-    --surface: #191f2b;
-    --surface-light: #202838;
-    --border: #2b3545;
-    --text: #f4f5f7;
-    --muted: #929cad;
-    --gold: #d8b77a;
-    --green: #65c99a;
-    --orange: #e5ad67;
-}
-
 * {
+    box-sizing: border-box;
     margin: 0;
     padding: 0;
-    box-sizing: border-box;
 }
 
 body {
     min-height: 100vh;
-    background: var(--background);
-    color: var(--text);
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #10141d;
+    color: #f5f7fb;
+    font-family: Inter, Arial, sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 24px;
 }
 
-.topbar {
-    height: 76px;
-    padding: 0 7%;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 1px solid var(--border);
-    background: #131925;
+.login-container {
+    width: 100%;
+    max-width: 420px;
 }
 
 .brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--text);
-    text-decoration: none;
-    font-weight: 800;
-    letter-spacing: 1.5px;
-}
-
-.brand small {
-    display: block;
-    margin-top: 4px;
-    color: var(--muted);
-    font-size: 9px;
-    letter-spacing: 2px;
+    text-align: center;
+    margin-bottom: 35px;
 }
 
 .brand-mark {
-    width: 39px;
-    height: 39px;
+    width: 58px;
+    height: 58px;
     display: grid;
     place-items: center;
-    border: 1px solid var(--gold);
-    border-radius: 10px;
-    color: var(--gold);
-    font-size: 21px;
+    margin: 0 auto 15px;
+    background: #263b5c;
+    border-radius: 16px;
+    font-size: 30px;
+    font-weight: 800;
 }
 
-.connection-status {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    color: var(--muted);
-    font-size: 11px;
-    letter-spacing: 1.5px;
+.brand h1 {
+    font-size: 27px;
+    letter-spacing: 3px;
 }
 
-.status-dot {
-    width: 8px;
-    height: 8px;
-    background: var(--orange);
-    border-radius: 50%;
-}
-
-.container {
-    width: min(1120px, 86%);
-    margin: 0 auto;
-}
-
-.hero {
-    padding: 76px 0 48px;
-}
-
-.eyebrow {
-    color: var(--gold);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 2.5px;
-}
-
-.hero h1 {
-    margin-top: 18px;
-    font-size: clamp(38px, 6vw, 58px);
-    letter-spacing: -2px;
-}
-
-.hero h1 span {
-    color: var(--gold);
-}
-
-.subtitle {
-    margin-top: 15px;
-    color: var(--muted);
-    font-size: 15px;
-    line-height: 1.7;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
-}
-
-.stat-card {
-    padding: 25px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 13px;
-}
-
-.stat-label {
-    display: block;
-    color: var(--muted);
+.brand p {
+    color: #8793a6;
     font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 1.5px;
+    letter-spacing: 2px;
+    margin-top: 8px;
 }
 
-.stat-card strong {
-    display: block;
-    margin: 18px 0 8px;
-    font-size: 36px;
+.sync-panel {
+    background: #191f2b;
+    border: 1px solid #293344;
+    border-radius: 18px;
+    padding: 30px;
 }
 
-.stat-note {
-    color: var(--muted);
-    font-size: 12px;
-}
-
-.repositories {
-    padding: 75px 0 60px;
-}
-
-.section-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: end;
-    margin-bottom: 25px;
-}
-
-.section-heading h2 {
-    margin-top: 10px;
+.sync-panel h2 {
+    text-align: center;
     font-size: 25px;
 }
 
-.repo-count {
-    color: var(--muted);
-    font-size: 12px;
+.subtitle {
+    color: #98a3b5;
+    text-align: center;
+    font-size: 13px;
+    margin: 12px 0 28px;
 }
 
-.toolbar {
+form {
     display: flex;
-    gap: 14px;
-    margin-bottom: 22px;
+    flex-direction: column;
 }
 
-.toolbar input,
-.toolbar select {
-    min-height: 46px;
-    padding: 0 15px;
-    color: var(--text);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+label {
+    font-size: 13px;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+input {
+    width: 100%;
+    padding: 14px;
+    margin-bottom: 20px;
+    background: #202a39;
+    border: 1px solid #394457;
+    border-radius: 9px;
+    color: white;
+    font-size: 14px;
     outline: none;
 }
 
-.toolbar input {
-    flex: 1;
+input:focus {
+    border-color: #5489ef;
 }
 
-.toolbar input:focus,
-.toolbar select:focus {
-    border-color: var(--gold);
+button {
+    border: none;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 5px;
+    background: #16865b;
+    color: white;
+    font-size: 18px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: background .2s;
 }
 
-.toolbar input::placeholder {
-    color: var(--muted);
+button:hover {
+    background: #1ba36e;
 }
 
-.repository-list {
-    display: grid;
-    gap: 13px;
+button:disabled {
+    opacity: .6;
+    cursor: wait;
 }
 
-.repo-card {
-    padding: 21px 23px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 15px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    transition: border-color 0.2s, transform 0.2s;
-}
-
-.repo-card:hover {
-    border-color: var(--gold);
-    transform: translateY(-2px);
-}
-
-.repo-name {
-    font-size: 15px;
-    font-weight: 700;
-}
-
-.repo-description {
-    margin-top: 8px;
-    color: var(--muted);
-    font-size: 12px;
-    line-height: 1.5;
-}
-
-.repo-status {
-    white-space: nowrap;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-.repo-status.up-to-date {
-    color: var(--green);
-}
-
-.repo-status.behind {
-    color: var(--orange);
-}
-
-.empty-state {
-    padding: 35px;
+#sync-status {
+    color: #aab5c5;
     text-align: center;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 11px;
+    font-size: 13px;
+    margin-top: 22px;
+    line-height: 1.6;
+}
+
+#sync-results {
+    margin-top: 16px;
+    font-size: 13px;
+}
+
+.result-item {
+    padding: 10px;
+    margin-top: 8px;
+    background: #202a39;
+    border-radius: 7px;
+    overflow-wrap: anywhere;
 }
 
 footer {
-    padding: 25px 0;
-    display: flex;
-    justify-content: space-between;
-    gap: 15px;
-    border-top: 1px solid var(--border);
-    color: var(--muted);
+    text-align: center;
+    color: #667286;
     font-size: 10px;
+    margin-top: 30px;
     letter-spacing: 1px;
 }
-
-@media (max-width: 650px) {
-    .stats-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .toolbar {
-        flex-direction: column;
-    }
-
-    .section-heading,
-    footer {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .repo-card {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .container {
-        width: 90%;
-    }
-
-    .hero {
-        padding-top: 55px;
-    }
-}
-
