@@ -6,6 +6,7 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
 import requests
+from requests.auth import AuthBase
 
 
 # GitHub advises waiting at least a minute when it gives no retry time.
@@ -18,6 +19,49 @@ class GitHubRateLimitError(requests.exceptions.RequestException):
     def __init__(self, message, retry_after, response=None):
         super().__init__(message, response=response)
         self.retry_after = retry_after
+
+
+class BearerAuth(AuthBase):
+    """Attach one explicit GitHub token to every request this session sends."""
+
+    def __init__(self, token):
+        self._token = token
+
+    def __call__(self, request):
+        request.headers["Authorization"] = f"Bearer {self._token}"
+        return request
+
+    def __repr__(self):
+        return "<BearerAuth token=***>"
+
+
+def _without_credentials(request):
+    return request
+
+
+class NoNetrcSession(requests.Session):
+    """A session that never takes credentials from a .netrc file.
+
+    By default, requests replaces a request's Authorization header with .netrc
+    credentials when the session has no auth object, and adds .netrc
+    credentials after a redirect to another host. Both are disabled here.
+    Proxy and certificate settings from the environment still apply.
+    """
+
+    def prepare_request(self, request):
+        if request.auth is None and self.auth is None:
+            # Any explicit auth value stops requests from consulting .netrc.
+            request.auth = _without_credentials
+        return super().prepare_request(request)
+
+    def rebuild_auth(self, prepared_request, response):
+        # requests' own behaviour minus the .netrc lookup: keep the token on the
+        # same host and drop it when a redirect leaves that host.
+        headers = prepared_request.headers
+        if "Authorization" in headers and self.should_strip_auth(
+            response.request.url, prepared_request.url
+        ):
+            del headers["Authorization"]
 
 
 def _is_rate_limited(response):
@@ -76,10 +120,11 @@ class GitHubClient:
         if not token:
             raise ValueError("A GitHub token is required.")
 
-        self.session = requests.Session()
+        # One session per client, so a token never outlives or crosses its client.
+        self.session = NoNetrcSession()
+        self.session.auth = BearerAuth(token)
         self.session.headers.update({
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
         })
 

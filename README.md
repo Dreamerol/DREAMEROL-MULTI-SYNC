@@ -230,6 +230,12 @@ GITHUB_TOKEN=your_github_token_here
 
 You can also use the built-in saved account manager described below.
 
+**CLI token order:** `--account USERNAME` uses that saved account's token from the keyring. Otherwise `GITHUB_TOKEN` (from the environment or `.env`) is used, and if it isn't set, the only saved account is used.
+
+**Web token handling:** the browser sends the token in the `Authorization` header of each request. The server uses it only for that request, through a client created for that request, and doesn't write it to disk or keep it afterwards.
+
+**`.netrc` is ignored:** GitHub requests are authenticated only with the token you supply. Credentials in a `.netrc` file are never added or substituted, including after redirects; a redirect to a different host drops the token.
+
 > ⚠️ Security Notice
 >
 > Keep your GitHub tokens private.
@@ -295,7 +301,7 @@ uvicorn api.app:app --host 127.0.0.1 --port 8000
 
 Open `http://127.0.0.1:8000`, paste a token and select **Preview forks**. The page shows the same statuses as the CLI. If any forks are behind, **SYNC lagging forks** appears and asks you to type `SYNC`. The server rechecks each selected fork before merging.
 
-The token is sent with each request and is not stored by the server. Use HTTPS for anything other than local use.
+The token is sent with each request and is used only for that request (see [GitHub Authentication](#-github-authentication)). Use HTTPS for anything other than local use.
 
 ---
 
