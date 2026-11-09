@@ -3,6 +3,8 @@ python-dotenv==1.0.1
 keyring==25.5.0
 pytest==8.3.3
 
+httpx2
+
 fastapi
 uvicorn[standard]
 email-validator
