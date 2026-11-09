@@ -101,7 +101,7 @@ def test_sync_fork_when_up_to_date(synchronizer, github, fork):
     github.merge_upstream.assert_not_called()
 
 
-def test_sync_fork_when_behind_upstream_targets_fork_default_branch(
+def test_sync_fork_when_behind_upstream_targets_upstream_default_branch(
     synchronizer, github, differently_named_fork
 ):
     github.compare_upstream.return_value = {
@@ -121,7 +121,7 @@ def test_sync_fork_when_behind_upstream_targets_fork_default_branch(
         upstream_branch="main",
         fork_branch="master",
     )
-    github.merge_upstream.assert_called_once_with("octocat/demo-fork", "master")
+    github.merge_upstream.assert_called_once_with("octocat/demo-fork", "main")
 
 
 def test_sync_fork_rechecks_comparison_after_preview(
