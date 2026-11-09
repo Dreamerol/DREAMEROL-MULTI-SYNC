@@ -9,6 +9,12 @@ from dotenv import load_dotenv
 from requests.exceptions import RequestException
 
 from fork_sync.accounts import AccountManager
+from fork_sync.deadline import (
+    DEFAULT_CLI_TIME_LIMIT,
+    Deadline,
+    DeadlineExceeded,
+    parse_time_limit,
+)
 from fork_sync.github import GitHubClient
 from fork_sync.synchronizer import ForkSynchronizer, describe_summary, has_failures
 
@@ -50,7 +56,22 @@ def build_parser():
         metavar="OWNER/REPO",
         help="Only select this fork (repeat to select multiple repositories).",
     )
+    parser.add_argument(
+        "--time-limit",
+        type=_time_limit_argument,
+        default=DEFAULT_CLI_TIME_LIMIT,
+        metavar="SECONDS",
+        help=f"Stop starting GitHub requests after this many seconds "
+        f"(default {DEFAULT_CLI_TIME_LIMIT}).",
+    )
     return parser
+
+
+def _time_limit_argument(text):
+    try:
+        return parse_time_limit(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
 
 
 def select_skipped(skipped, requested_repositories):
@@ -176,13 +197,17 @@ def main(argv=None):
     github = None
     try:
         github = _get_github_client(args, accounts)
+        github.deadline = Deadline(args.time_limit)
         user = github.get_authenticated_user()
         if not isinstance(user, dict) or not user.get("login"):
             raise ValueError("GitHub returned invalid authenticated-user data.")
         print(f"\nGitHub account: {user['login']}")
 
         synchronizer = ForkSynchronizer(github)
-        discovery = synchronizer.discover_forks()
+        if args.repo:
+            discovery = synchronizer.discover_forks(only=args.repo, owner_login=user["login"])
+        else:
+            discovery = synchronizer.discover_forks()
         forks = filter_repositories(discovery.forks, args.repo, discovery.skipped)
         skipped = select_skipped(discovery.skipped, args.repo)
         print(f"Selected {len(forks)} fork repository/repositories.")
@@ -218,6 +243,9 @@ def main(argv=None):
                 print("Completed with problems; some repositories need attention.")
         return 1 if has_failures(results) else 0
 
+    except DeadlineExceeded as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
     except (RequestException, ValueError, KeyError, TypeError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1

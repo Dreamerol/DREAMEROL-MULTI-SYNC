@@ -176,7 +176,7 @@ Designed to make fork management easier, faster and more convenient.
 Before getting started, make sure you have:
 
 - 🐍 **Python 3.11 or later** (required by the pinned web dependencies). CI runs on Python 3.12.
-- 🔑 **GitHub Personal Access Token** that can read your forks and update them. A fine-grained token needs write access to repository contents on those forks.
+- 🔑 **GitHub Personal Access Token**. See [Token Permissions](#-token-permissions) for exactly what it needs.
 - 🔐 **Operating-system keyring backend** (required for saved accounts only).
 
 ---
@@ -236,6 +236,30 @@ You can also use the built-in saved account manager described below.
 
 **`.netrc` is ignored:** GitHub requests are authenticated only with the token you supply. Credentials in a `.netrc` file are never added or substituted, including after redirects; a redirect to a different host drops the token.
 
+### 🔐 Token Permissions
+
+| Operation | GitHub API | Fine-grained token | Classic token |
+|:---|:---|:---|:---|
+| Identify the account | `GET /user` | No specific permission listed by GitHub | Any token |
+| List your repositories | `GET /user/repos` | Metadata: read | Any token; private repositories need `repo` |
+| Load a fork's details | `GET /repos/{owner}/{repo}` | Metadata: read | Public: any token; private: `repo` |
+| Compare a fork with upstream | `GET /repos/{owner}/{repo}/compare/...` | Contents: read | Public: any token; private: `repo` |
+| Find the upstream branch commit (same-owner forks only) | `GET /repos/{owner}/{repo}/branches/{branch}` | Contents: read, on the upstream repository | Public: any token; private: `repo` |
+| Sync a fork | `POST /repos/{owner}/{repo}/merge-upstream` | Contents: write | Public forks: `public_repo`; private forks: `repo` |
+
+- **Previewing public forks** needs only read access. Fine-grained tokens always have read-only access to public repositories, and a classic token with no scopes can read public information.
+- **Private forks** need the read permissions above for each fork (fine-grained), or the `repo` scope (classic).
+- **Syncing** needs Contents: write on each fork you sync (fine-grained), or `public_repo` / `repo` (classic). Previewing never needs write access.
+- **Recommended:** a fine-grained token owned by your account, limited to your forks, with Metadata: read and Contents: write.
+
+Limitations:
+
+- A fine-grained token only covers the repositories you select for it. Forks it can't see are not listed and look the same as having no forks, so the tool can't warn you about them.
+- A fine-grained token covers one account or organization. Forks are discovered only for the authenticated account.
+- If an upstream change modifies files in `.github/workflows`, GitHub may require extra workflow permission to sync it. This hasn't been verified for the sync endpoint used here; if GitHub refuses, the fork is reported as `error` and nothing is merged.
+
+Permissions are taken from GitHub's documentation on [fine-grained token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens) and [classic token scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps); they have not been tested against a live account.
+
 > ⚠️ Security Notice
 >
 > Keep your GitHub tokens private.
@@ -266,6 +290,18 @@ python main.py --dry-run --repo octocat/project-fork --repo octocat/another-fork
 ```
 
 Filters match the exact `owner/repository` name. A name that doesn't match is reported as an error rather than silently ignored.
+
+Selected forks are looked up directly, so choosing a few repositories doesn't load every fork in the account. A selected repository must be a fork owned by the authenticated account; anything else is reported as not found.
+
+### ⏱️ Time Limit
+
+A run stops starting new GitHub requests after 30 minutes by default. Change it with `--time-limit SECONDS`:
+
+```bash
+python main.py --time-limit 600
+```
+
+Forks not processed in time are reported as `deadline-exceeded`, and the run exits with a failure status. A merge request is only sent if at least 30 seconds remain, and one already sent is always allowed to finish.
 
 ### ⚡ Live Synchronization
 
@@ -302,6 +338,8 @@ uvicorn api.app:app --host 127.0.0.1 --port 8000
 Open `http://127.0.0.1:8000`, paste a token and select **Preview forks**. The page shows the same statuses as the CLI. If any forks are behind, **SYNC lagging forks** appears and asks you to type `SYNC`. The server rechecks each selected fork before merging.
 
 The token is sent with each request and is used only for that request (see [GitHub Authentication](#-github-authentication)). Use HTTPS for anything other than local use.
+
+Each web request has a 5-minute time limit by default. A server administrator can change it with the `DREAMEROL_WEB_TIME_LIMIT` environment variable, in seconds; an invalid value stops the server from starting. If time runs out while forks are being listed, the API returns HTTP 504. A live sync looks up only the selected forks.
 
 ---
 
@@ -341,10 +379,11 @@ python main.py --account octocat            # Synchronize using an account
 | `error` | Comparison or merge failed. | Yes |
 | `skipped` | A repository couldn't be examined because GitHub's data was missing, invalid or unavailable. | Yes |
 | `rate-limited` | GitHub's rate limit stopped this repository from being processed. | Yes |
+| `deadline-exceeded` | The run's overall time limit was reached before this repository was finished. A merge with this status was not sent. | Yes |
 
 > 📌 Exit Status
 >
-> The CLI exits with a non-zero status if any repository has a failure status, or if forks can't be listed at all. The web API reports the same condition as `has_failures`, and returns HTTP 429 or 502 if forks can't be listed.
+> The CLI exits with a non-zero status if any repository has a failure status, or if forks can't be listed at all. The web API reports the same condition as `has_failures`, and returns HTTP 429, 502 or 504 if forks can't be listed.
 
 ### 🧯 Reliability Behaviour
 
@@ -352,6 +391,8 @@ python main.py --account octocat            # Synchronize using an account
 - Rate limits honour `Retry-After` and `X-RateLimit-Reset`. Short waits of up to 60 seconds are retried once; otherwise the run stops contacting GitHub and marks the remaining repositories `rate-limited`.
 - Merge requests are never retried. If the outcome is unclear, the fork is compared again and the result is reported as `synced` or `unknown`.
 - GitHub's merge endpoint can't be limited to a specific commit, so a fork changed in the moment between comparison and merge can only be noticed afterwards, typically as `merged`.
+- Each request has its own 30-second timeout, and the whole run has the overall time limit described above. A reply that keeps arriving slowly is abandoned once the overall limit passes.
+- When a fork and its upstream belong to the same owner, the upstream branch is resolved to a commit first, because GitHub's `OWNER:BRANCH` comparison format can't tell the two repositories apart.
 
 ---
 

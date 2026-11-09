@@ -5,10 +5,15 @@ from typing import NamedTuple
 
 import requests
 
+from fork_sync.deadline import DeadlineExceeded
 from fork_sync.github import GitHubRateLimitError
 
 
-FAILURE_STATUSES = {"error", "conflict", "skipped", "unknown", "rate-limited"}
+FAILURE_STATUSES = {
+    "error", "conflict", "skipped", "unknown", "rate-limited", "deadline-exceeded",
+}
+# Statuses after which no further GitHub requests are started in a run.
+STOP_STATUSES = {"rate-limited", "deadline-exceeded"}
 _EXPECTED_ERRORS = (requests.exceptions.RequestException, ValueError, KeyError, TypeError)
 
 
@@ -93,13 +98,20 @@ class ForkSynchronizer:
     def __init__(self, github_client):
         self.github = github_client
 
-    def discover_forks(self):
+    def discover_forks(self, only=None, owner_login=None):
         """Find the account's forks and report every fork that could not be used.
 
         The repository list has no parent data, so each fork is fetched
         individually. Listing failures raise; a problem with one repository
         becomes a "skipped" result instead of disappearing.
+
+        With ``only``, just those repositories are looked up directly. A name
+        that is missing, not a fork or not owned by ``owner_login`` is left
+        out, exactly as it would be absent from the full listing.
         """
+        if only is not None:
+            return self._look_up_forks(only, owner_login)
+
         repositories = self.github.list_repositories()
         if not isinstance(repositories, list):
             raise ValueError("Invalid repository list returned by GitHub.")
@@ -107,7 +119,7 @@ class ForkSynchronizer:
         forks = []
         skipped = []
         seen = set()
-        rate_limit_message = None
+        stop = None
         for item in repositories:
             if not isinstance(item, dict):
                 skipped.append(_skipped("unknown", "GitHub returned a malformed repository entry."))
@@ -127,19 +139,83 @@ class ForkSynchronizer:
                 continue
             seen.add(full_name)
 
-            if rate_limit_message:
-                skipped.append(_rate_limited(full_name, f"Not checked: {rate_limit_message}"))
+            if stop:
+                skipped.append(_result(full_name, stop[0], f"Not checked: {stop[1]}"))
                 continue
 
             try:
                 repository = self.github.get_repository(full_name)
             except GitHubRateLimitError as error:
-                rate_limit_message = str(error)
-                skipped.append(_rate_limited(full_name, rate_limit_message))
+                stop = ("rate-limited", str(error))
+                skipped.append(_rate_limited(full_name, stop[1]))
+                continue
+            except DeadlineExceeded as error:
+                stop = ("deadline-exceeded", str(error))
+                skipped.append(_result(full_name, *stop))
                 continue
             except _EXPECTED_ERRORS as error:
                 skipped.append(_skipped(full_name, f"Could not load fork details: {error}"))
                 continue
+
+            problem = _fork_details_problem(repository)
+            if problem:
+                skipped.append(_skipped(full_name, problem))
+                continue
+            forks.append(repository)
+
+        return ForkDiscovery(forks, skipped)
+
+    def _look_up_forks(self, names, owner_login):
+        """Load only the named forks, keeping the listing's ownership rules."""
+        if not isinstance(owner_login, str) or not owner_login.strip():
+            raise ValueError("The authenticated account is required for a targeted lookup.")
+
+        forks = []
+        skipped = []
+        stop = None
+        requested = dict.fromkeys(
+            name.strip() for name in names if isinstance(name, str) and name.strip()
+        )
+        for full_name in requested:
+            if not _is_full_name(full_name):
+                continue  # Cannot exist; reported as not found by the caller.
+            if stop:
+                skipped.append(_result(full_name, stop[0], f"Not checked: {stop[1]}"))
+                continue
+
+            try:
+                repository = self.github.get_repository(full_name)
+            except GitHubRateLimitError as error:
+                stop = ("rate-limited", str(error))
+                skipped.append(_rate_limited(full_name, stop[1]))
+                continue
+            except DeadlineExceeded as error:
+                stop = ("deadline-exceeded", str(error))
+                skipped.append(_result(full_name, *stop))
+                continue
+            except requests.exceptions.HTTPError as error:
+                if error.response is not None and error.response.status_code == 404:
+                    continue  # Missing, or private and invisible to this token.
+                skipped.append(_skipped(full_name, f"Could not load fork details: {error}"))
+                continue
+            except _EXPECTED_ERRORS as error:
+                skipped.append(_skipped(full_name, f"Could not load fork details: {error}"))
+                continue
+
+            if not isinstance(repository, dict):
+                skipped.append(_skipped(full_name, "GitHub returned malformed repository details."))
+                continue
+            owner = repository.get("owner")
+            login = owner.get("login") if isinstance(owner, dict) else None
+            if not isinstance(login, str) or not login.strip():
+                skipped.append(_skipped(full_name, "GitHub's repository details have no owner."))
+                continue
+            if (
+                repository.get("full_name") != full_name
+                or login.strip().lower() != owner_login.strip().lower()
+                or repository.get("fork") is not True
+            ):
+                continue  # Renamed, owned by someone else, or not a fork.
 
             problem = _fork_details_problem(repository)
             if problem:
@@ -270,22 +346,25 @@ class ForkSynchronizer:
         return self._process_each(forks, self.preview_fork)
 
     def _process_each(self, forks, process):
-        """Isolate per-fork failures, but stop calling GitHub once rate limited."""
+        """Isolate per-fork failures, but stop calling GitHub once rate limited
+        or out of time."""
         results = []
-        rate_limit_message = None
+        stop = None
         for repository in forks:
-            if rate_limit_message:
+            if stop:
                 results.append(
-                    _rate_limited(_name_of(repository), f"Not attempted: {rate_limit_message}")
+                    _result(_name_of(repository), stop[0], f"Not attempted: {stop[1]}")
                 )
                 continue
             try:
                 result = process(repository)
+            except DeadlineExceeded as error:
+                result = _result(_name_of(repository), "deadline-exceeded", str(error))
             except Exception as error:
                 result = self._error_result(repository, error)
             results.append(result)
-            if result["status"] == "rate-limited":
-                rate_limit_message = result["message"]
+            if result["status"] in STOP_STATUSES:
+                stop = (result["status"], result["message"])
         return results
 
     def sync_fork(self, repo):
@@ -303,6 +382,9 @@ class ForkSynchronizer:
             outcome = self.github.merge_upstream(
                 state["repository"], repo["default_branch"].strip()
             )
+        except DeadlineExceeded as error:
+            # Raised only before the request is sent, so nothing was merged.
+            return {**state, "status": "deadline-exceeded", "message": f"Merge not sent: {error}"}
         except GitHubRateLimitError as error:
             return {**state, "status": "rate-limited", "message": f"Merge refused: {error}"}
         except requests.exceptions.HTTPError as error:

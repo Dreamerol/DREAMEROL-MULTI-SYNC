@@ -1,11 +1,24 @@
+import os
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from requests.exceptions import HTTPError, RequestException
 
+from fork_sync.deadline import (
+    DEFAULT_WEB_TIME_LIMIT,
+    Deadline,
+    DeadlineExceeded,
+    parse_time_limit,
+)
 from fork_sync.github import GitHubClient, GitHubRateLimitError
 from fork_sync.synchronizer import ForkSynchronizer, has_failures, summarize
 
 router = APIRouter(prefix="/api", tags=["sync"])
+
+# Server-side only; a request cannot choose its own time limit.
+WEB_TIME_LIMIT = parse_time_limit(
+    os.environ.get("DREAMEROL_WEB_TIME_LIMIT", DEFAULT_WEB_TIME_LIMIT)
+)
 
 
 class SyncRequest(BaseModel):
@@ -29,6 +42,10 @@ class SyncResponse(BaseModel):
     summary: dict[str, int]
     has_failures: bool
     results: list[SyncResult]
+
+
+def _deadline_response(error):
+    return HTTPException(status_code=504, detail=str(error))
 
 
 def _rate_limit_response(error):
@@ -77,9 +94,12 @@ def sync_repositories(
             raise HTTPException(status_code=400, detail="Duplicate repositories were selected.")
 
     client = GitHubClient(token.strip())
+    client.deadline = Deadline(WEB_TIME_LIMIT)
     try:
         try:
             user = client.get_authenticated_user()
+        except DeadlineExceeded as error:
+            raise _deadline_response(error) from error
         except GitHubRateLimitError as error:
             raise _rate_limit_response(error) from error
         except HTTPError as error:
@@ -101,7 +121,14 @@ def sync_repositories(
 
         synchronizer = ForkSynchronizer(client)
         try:
-            discovery = synchronizer.discover_forks()
+            if request.dry_run:
+                discovery = synchronizer.discover_forks()
+            else:
+                discovery = synchronizer.discover_forks(
+                    only=request.repositories, owner_login=account
+                )
+        except DeadlineExceeded as error:
+            raise _deadline_response(error) from error
         except GitHubRateLimitError as error:
             raise _rate_limit_response(error) from error
         except (RequestException, ValueError, TypeError) as error:
@@ -116,6 +143,11 @@ def sync_repositories(
                 raise HTTPException(
                     status_code=429,
                     detail="GitHub rate limit reached while loading forks. Preview again later.",
+                )
+            if any(result["status"] == "deadline-exceeded" for result in discovery.skipped):
+                raise HTTPException(
+                    status_code=504,
+                    detail="Time limit reached while loading forks. Nothing was merged.",
                 )
 
             available = {

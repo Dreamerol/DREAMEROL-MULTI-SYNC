@@ -307,7 +307,9 @@ def test_web_live_refuses_when_discovery_was_rate_limited(github):
     github.add_fork("a", compare=(0, 1))
     github.add_fork("b", details=limited())
 
-    reply = post({"dry_run": False, "confirmation": "SYNC", "repositories": ["demo/a"]})
+    # Live sync looks up only the selection, so the selected fork must be the
+    # one whose lookup is rate limited.
+    reply = post({"dry_run": False, "confirmation": "SYNC", "repositories": ["demo/a", "demo/b"]})
 
     assert reply.status_code == 429
     assert github.merged == []

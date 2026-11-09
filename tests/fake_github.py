@@ -18,8 +18,12 @@ def response(status=200, body=None, headers=None, url=BASE):
     result.status_code = status
     result.url = url
     result._content = b"" if body is None else json.dumps(body).encode()
+    result._content_consumed = True  # Already read, as the client expects.
     result.headers.update(headers or {})
     return result
+
+
+DEFAULT_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 def list_item(full_name, fork=True, default_branch="main"):
@@ -29,9 +33,10 @@ def list_item(full_name, fork=True, default_branch="main"):
 
 def full_repository(full_name, default_branch="main", upstream_branch="main", **extra):
     """A fork as returned by GET /repos/{owner}/{repo}."""
-    name = full_name.split("/", 1)[1]
+    owner, name = full_name.split("/", 1)
     return {
         **list_item(full_name, default_branch=default_branch),
+        "owner": {"login": owner},
         "archived": False,
         "disabled": False,
         "parent": {"full_name": f"upstream/{name}", "default_branch": upstream_branch},
@@ -56,8 +61,11 @@ class FakeGitHub:
         self.details = {}
         self.compares = {}
         self.merges = {}
+        self.branch_heads = {}
         self.calls = []
+        self.timeouts = []
         self.merge_bodies = []
+        self.on_request = None
 
     def install(self, monkeypatch):
         monkeypatch.setattr(requests.Session, "request", self)
@@ -101,6 +109,9 @@ class FakeGitHub:
 
     def __call__(self, method, url, **kwargs):
         self.calls.append((method, url))
+        self.timeouts.append(kwargs.get("timeout"))
+        if self.on_request:
+            self.on_request(method, url)
         path = unquote(url.removeprefix(BASE))
 
         if path == "/user":
@@ -124,8 +135,17 @@ class FakeGitHub:
             self.merge_bodies.append(kwargs.get("json"))
             return self._reply(self.merges[match[1]], url)
 
+        match = re.fullmatch(r"/repos/([^/]+/[^/]+)/branches/(.+)", path)
+        if match:
+            head = _next(self.branch_heads.get(match[1], DEFAULT_SHA))
+            if isinstance(head, str):
+                return response(200, {"name": match[2], "commit": {"sha": head}}, url=url)
+            return self._reply(head, url)
+
         match = re.fullmatch(r"/repos/([^/]+/[^/]+)", path)
         if match:
+            if match[1] not in self.details:
+                return response(404, {"message": "Not Found"}, url=url)
             detail = _next(self.details[match[1]])
             if isinstance(detail, dict):
                 return response(200, detail, url=url)
