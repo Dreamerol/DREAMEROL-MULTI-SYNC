@@ -16,11 +16,18 @@ function renderResults(results) {
         const item = document.createElement("div");
         item.className = "result-item";
         item.dataset.status = result.status;
-        item.textContent = `${result.repository}: ${result.status}` +
-            (Number.isInteger(result.behind_by) ? ` (${result.behind_by} behind)` : "") +
+        const counts = Number.isInteger(result.behind_by) && Number.isInteger(result.ahead_by)
+            ? ` (${result.behind_by} behind, ${result.ahead_by} ahead)`
+            : "";
+        item.textContent = `${result.repository}: ${result.status}${counts}` +
             (result.message ? ` — ${result.message}` : "");
         resultsBox.appendChild(item);
     });
+}
+
+function describeSummary(data) {
+    const parts = Object.entries(data.summary).map(([status, count]) => `${count} ${status}`);
+    return parts.join(", ") + (data.has_failures ? ". Some repositories need attention" : "");
 }
 
 async function requestSync(payload) {
@@ -69,15 +76,13 @@ form.addEventListener("submit", async (event) => {
         const data = await requestSync({ dry_run: true });
         renderResults(data.results);
 
-        const behindResults = data.results.filter((result) => result.status === "behind");
-        const upToDateCount = data.results.filter((result) => result.status === "up-to-date").length;
-        const errorCount = data.results.filter((result) => result.status === "error").length;
-        previewRepositories = behindResults.map((result) => result.repository);
+        previewRepositories = data.results
+            .filter((result) => result.status === "behind")
+            .map((result) => result.repository);
         previewReady = previewRepositories.length > 0;
         syncButton.hidden = !previewReady;
 
-        statusBox.textContent = `GitHub account: ${data.account}. ${behindResults.length} behind, ${upToDateCount} up to date` +
-            (errorCount ? `, ${errorCount} could not be checked` : "") + ". No repositories were changed.";
+        statusBox.textContent = `GitHub account: ${data.account}. ${describeSummary(data)}. No repositories were changed.`;
         if (data.total === 0) {
             statusBox.textContent = `No fork repositories found for ${data.account}.`;
         }
@@ -116,13 +121,7 @@ syncButton.addEventListener("click", async () => {
             repositories: previewRepositories
         });
         renderResults(data.results);
-        const synced = data.results.filter((result) => result.status === "synced").length;
-        const upToDate = data.results.filter((result) => result.status === "up-to-date").length;
-        const errors = data.results.filter(
-            (result) => result.status === "error" || result.status === "conflict"
-        ).length;
-        statusBox.textContent = `Completed for ${data.account}: ${synced} synchronized, ${upToDate} already up to date` +
-            (errors ? `, ${errors} failed or conflicted` : "") + ".";
+        statusBox.textContent = `Completed for ${data.account}: ${describeSummary(data)}.`;
     } catch (error) {
         statusBox.textContent = error.message || "Could not connect to the server.";
     } finally {

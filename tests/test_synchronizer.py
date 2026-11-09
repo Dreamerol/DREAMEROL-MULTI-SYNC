@@ -17,7 +17,7 @@ def github():
         "ahead_by": 0,
         "behind_by": 3,
     }
-    client.merge_upstream.return_value = None
+    client.merge_upstream.return_value = {"merge_type": "fast-forward"}
     return client
 
 
@@ -36,6 +36,7 @@ def fork():
             "full_name": "original/AI-STUDIO",
             "default_branch": "main",
         },
+        "source": {"full_name": "original/AI-STUDIO"},
     }
 
 
@@ -49,36 +50,38 @@ def differently_named_fork():
             "full_name": "octodemo/upstream-repo",
             "default_branch": "main",
         },
+        "source": {"full_name": "octodemo/upstream-repo"},
     }
 
 
-def test_get_forks_returns_only_forks(synchronizer, github):
+def test_discover_forks_uses_single_repository_details(synchronizer, github):
     github.list_repositories.return_value = [
+        {"full_name": "user/fork", "fork": True},
+        {"full_name": "user/original", "fork": False},
+        {"full_name": "user/incomplete-parent", "fork": True},
+        "invalid",
+    ]
+    github.get_repository.side_effect = [
         {
             "full_name": "user/fork",
             "fork": True,
-            "parent": {
-                "full_name": "original/fork",
-                "default_branch": "main",
-            },
+            "default_branch": "main",
+            "parent": {"full_name": "original/fork", "default_branch": "main"},
         },
-        {"full_name": "user/original", "fork": False},
-        {"full_name": "user/another", "fork": True},
-        {"full_name": "user/incomplete-parent", "fork": True, "parent": {}},
-        "invalid",
+        {"full_name": "user/incomplete-parent", "fork": True, "default_branch": "main", "parent": {}},
     ]
 
-    result = synchronizer.get_forks()
+    result = synchronizer.discover_forks()
 
-    assert len(result) == 1
-    assert result[0]["full_name"] == "user/fork"
+    assert [fork["full_name"] for fork in result.forks] == ["user/fork"]
+    assert {item["repository"] for item in result.skipped} == {"unknown", "user/incomplete-parent"}
 
 
-def test_get_forks_rejects_invalid_response(synchronizer, github):
+def test_discover_forks_rejects_invalid_response(synchronizer, github):
     github.list_repositories.return_value = None
 
     with pytest.raises(ValueError):
-        synchronizer.get_forks()
+        synchronizer.discover_forks()
 
 
 def test_sync_fork_when_up_to_date(synchronizer, github, fork):
@@ -101,39 +104,41 @@ def test_sync_fork_when_up_to_date(synchronizer, github, fork):
     github.merge_upstream.assert_not_called()
 
 
-def test_sync_fork_when_behind_upstream_targets_fork_default_branch(
-    synchronizer, github, differently_named_fork
-):
+def test_sync_fork_when_behind_upstream_merges_matching_branch(synchronizer, github, fork):
     github.compare_upstream.return_value = {
         "ahead_by": 0,
         "behind_by": 3,
         "status": "behind",
     }
 
-    result = synchronizer.sync_fork(differently_named_fork)
+    result = synchronizer.sync_fork(fork)
 
     assert result["status"] == "synced"
-    assert result["repository"] == "octocat/demo-fork"
-    assert "3 upstream commits" in result["message"]
-    github.compare_upstream.assert_called_once_with(
-        fork_full_name="octocat/demo-fork",
-        upstream_full_name="octodemo/upstream-repo",
-        upstream_branch="main",
-        fork_branch="master",
-    )
-    github.merge_upstream.assert_called_once_with("octocat/demo-fork", "master")
+    assert result["merge_type"] == "fast-forward"
+    assert "3 commit(s)" in result["message"]
+    github.merge_upstream.assert_called_once_with("Dreamerol/AI-STUDIO", "main")
 
 
-def test_sync_fork_rechecks_comparison_after_preview(
-    synchronizer, github, differently_named_fork
+@pytest.mark.parametrize("method", ["preview_fork", "sync_fork"])
+def test_different_default_branch_names_are_refused(
+    synchronizer, github, differently_named_fork, method
 ):
+    result = getattr(synchronizer, method)(differently_named_fork)
+
+    assert result["status"] == "branch-mismatch"
+    assert "'master'" in result["message"] and "'main'" in result["message"]
+    github.compare_upstream.assert_not_called()
+    github.merge_upstream.assert_not_called()
+
+
+def test_sync_fork_rechecks_comparison_after_preview(synchronizer, github, fork):
     github.compare_upstream.side_effect = [
         {"ahead_by": 0, "behind_by": 2, "status": "behind"},
         {"ahead_by": 1, "behind_by": 2, "status": "diverged"},
     ]
 
-    preview = synchronizer.preview_fork(differently_named_fork)
-    result = synchronizer.sync_fork(differently_named_fork)
+    preview = synchronizer.preview_fork(fork)
+    result = synchronizer.sync_fork(fork)
 
     assert preview["status"] == "behind"
     assert result["status"] == "diverged"
@@ -222,6 +227,7 @@ def test_sync_all_continues_after_repository_error(synchronizer, github, fork):
             "full_name": "original/PORTFOLIO",
             "default_branch": "main",
         },
+        "source": {"full_name": "original/PORTFOLIO"},
     }
     github.compare_upstream.side_effect = [
         RuntimeError("Unexpected failure"),
@@ -237,19 +243,9 @@ def test_sync_all_continues_after_repository_error(synchronizer, github, fork):
     github.merge_upstream.assert_called_once_with("Dreamerol/PORTFOLIO", "main")
 
 
-def test_sync_all_handles_repository_discovery_error(synchronizer, github):
-    github.list_repositories.side_effect = requests.ConnectionError("GitHub unavailable")
+def test_preview_all_compares_without_merging(synchronizer, github, fork):
+    results = synchronizer.preview_all([fork])
 
-    results = synchronizer.sync_all()
-
-    assert len(results) == 1
-    assert results[0]["repository"] == "account"
-    assert results[0]["status"] == "error"
-
-
-def test_sync_all_dry_run_does_not_merge(synchronizer, github, fork):
-    results = synchronizer.sync_all(forks=[fork], dry_run=True)
-
-    assert results[0]["status"] == "dry-run"
-    github.compare_upstream.assert_not_called()
+    assert results[0]["status"] == "behind"
+    github.compare_upstream.assert_called_once()
     github.merge_upstream.assert_not_called()

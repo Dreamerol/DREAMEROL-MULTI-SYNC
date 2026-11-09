@@ -10,7 +10,7 @@ from requests.exceptions import RequestException
 
 from fork_sync.accounts import AccountManager
 from fork_sync.github import GitHubClient
-from fork_sync.synchronizer import ForkSynchronizer
+from fork_sync.synchronizer import ForkSynchronizer, describe_summary, has_failures
 
 
 def build_parser():
@@ -29,6 +29,11 @@ def build_parser():
         action="store_true",
         help="List accounts saved in the system keyring.",
     )
+    actions.add_argument(
+        "--remove-account",
+        metavar="USERNAME",
+        help="Delete a saved account and its token from the system keyring.",
+    )
     parser.add_argument(
         "--account",
         help="Use a saved account by GitHub username.",
@@ -36,7 +41,7 @@ def build_parser():
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show selected forks without changing them or prompting for confirmation.",
+        help="Compare selected forks with upstream without changing them.",
     )
     parser.add_argument(
         "--repo",
@@ -48,7 +53,15 @@ def build_parser():
     return parser
 
 
-def filter_repositories(forks, requested_repositories):
+def select_skipped(skipped, requested_repositories):
+    """Keep skipped-fork results relevant to the requested selection."""
+    if not requested_repositories:
+        return skipped
+    requested = {name.strip() for name in requested_repositories}
+    return [result for result in skipped if result["repository"] in requested]
+
+
+def filter_repositories(forks, requested_repositories, skipped=()):
     """Select forks by exact owner/repository name; reject unknown selections."""
     if not requested_repositories:
         return forks
@@ -59,6 +72,7 @@ def filter_repositories(forks, requested_repositories):
         for repo in forks
         if isinstance(repo, dict) and isinstance(repo.get("full_name"), str)
     }
+    available |= {result["repository"] for result in skipped}
     missing = sorted(requested - available)
     if missing:
         raise ValueError(
@@ -71,13 +85,14 @@ def filter_repositories(forks, requested_repositories):
     ]
 
 
-def confirm_synchronization(forks, input_fn=input, output=print):
+def confirm_synchronization(forks, input_fn=None, output=print):
     """Require an explicit typed confirmation before changing any fork."""
     if not forks:
         output("No fork repositories selected.")
         return False
 
-    output("The following default branches may be changed:")
+    input_fn = input_fn or input
+    output("These forks are behind upstream and their default branches will be updated:")
     for repo in forks:
         output(f" - {repo.get('full_name', 'unknown')}")
     try:
@@ -107,6 +122,13 @@ def _get_github_client(args, accounts):
     raise ValueError(
         "No token configured. Set GITHUB_TOKEN or add an account with --add-account."
     )
+
+
+def _print_results(results):
+    for result in results:
+        print(f"{result['repository']}: {result['status']}")
+        if result.get("message"):
+            print(f"  {result['message']}")
 
 
 def main(argv=None):
@@ -142,6 +164,15 @@ def main(argv=None):
                 print(f" - {username}")
         return 0
 
+    if args.remove_account is not None:
+        try:
+            accounts.remove_account(args.remove_account)
+        except Exception as error:
+            print(f"Could not remove account: {error}", file=sys.stderr)
+            return 1
+        print(f"Account '{args.remove_account}' removed from the system keyring.")
+        return 0
+
     github = None
     try:
         github = _get_github_client(args, accounts)
@@ -151,22 +182,41 @@ def main(argv=None):
         print(f"\nGitHub account: {user['login']}")
 
         synchronizer = ForkSynchronizer(github)
-        forks = filter_repositories(synchronizer.get_forks(), args.repo)
-        print(f"Selected {len(forks)} fork repository/repositories.\n")
+        discovery = synchronizer.discover_forks()
+        forks = filter_repositories(discovery.forks, args.repo, discovery.skipped)
+        skipped = select_skipped(discovery.skipped, args.repo)
+        print(f"Selected {len(forks)} fork repository/repositories.")
+        if skipped:
+            print(f"Skipped {len(skipped)} repository/repositories that could not be used.")
+        print()
 
-        if args.dry_run:
-            results = synchronizer.sync_all(forks=forks, dry_run=True)
+        previews = synchronizer.preview_all(forks)
+        candidates = [
+            fork for fork, preview in zip(forks, previews)
+            if preview["status"] == "behind"
+        ]
+
+        if args.dry_run or not candidates:
+            results = skipped + previews
+        elif confirm_synchronization(candidates):
+            # sync_fork compares again, because the prompt can wait indefinitely.
+            synced = iter(synchronizer.sync_all(forks=candidates))
+            results = skipped + [
+                next(synced) if preview["status"] == "behind" else preview
+                for preview in previews
+            ]
         else:
-            if not confirm_synchronization(forks):
-                print("Synchronization cancelled.")
-                return 0
-            results = synchronizer.sync_all(forks=forks)
+            print("Synchronization cancelled. No repositories were changed.")
+            results = skipped + previews
 
-        for result in results:
-            print(f"{result['repository']}: {result['status']}")
-            if result.get("message"):
-                print(f"  {result['message']}")
-        return 1 if any(result.get("status") in {"error", "conflict"} for result in results) else 0
+        if not results:
+            print("No fork repositories found for this account.")
+        else:
+            _print_results(results)
+            print(f"\nSummary: {describe_summary(results)}")
+            if has_failures(results):
+                print("Completed with problems; some repositories need attention.")
+        return 1 if has_failures(results) else 0
 
     except (RequestException, ValueError, KeyError, TypeError) as error:
         print(f"Error: {error}", file=sys.stderr)
