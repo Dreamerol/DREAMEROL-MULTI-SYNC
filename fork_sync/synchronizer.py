@@ -165,7 +165,7 @@ class ForkSynchronizer:
     def sync_fork(self, repo):
         """Sync a fork only when its default branch is behind upstream and safe to update."""
         try:
-            full_name, fork_branch, _, ahead_by, behind_by = self._compare_fork(repo)
+            full_name, fork_branch, upstream_branch, ahead_by, behind_by = self._compare_fork(repo)
             if behind_by == 0 and ahead_by == 0:
                 return {
                     "repository": full_name,
@@ -199,7 +199,7 @@ class ForkSynchronizer:
                     "ahead_by": ahead_by,
                 }
 
-            self.github.merge_upstream(full_name, fork_branch)
+            self.github.merge_upstream(full_name, upstream_branch)
             return {
                 "repository": full_name,
                 "status": "synced",
