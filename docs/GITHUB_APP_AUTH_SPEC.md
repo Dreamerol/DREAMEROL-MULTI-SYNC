@@ -61,6 +61,7 @@ For `/auth/poll` and `/auth/ack`, the transaction ID is sent in the JSON body an
 ## 5. OAuth and callback requirements
 
 - PKCE with **S256 is mandatory**.
+- The Broker generates a cryptographically random `code_verifier` for each transaction, stores it only in that transaction's temporary state, and sends the corresponding `code_challenge` with `code_challenge_method=S256` in the GitHub authorization request. The Broker supplies the same verifier during the token exchange. The CLI never receives or stores the verifier.
 - If the selected GitHub authorization flow cannot satisfy the PKCE S256 requirement, authentication must fail. Do not fall back to a flow without PKCE.
 - OAuth `state` validation is mandatory.
 - Callback URL must be a fixed HTTPS redirect URI, with wildcard callback matching disabled.
@@ -139,6 +140,8 @@ Polling and ACK must use atomic state transitions and safe retry handling.
 Do not assume every repository requires a GitHub App installation.
 
 Use the approved user-to-server access-token model. Do not conflate user-to-server tokens with installation tokens or introduce mandatory installation steps unless the product explicitly adopts that model.
+
+A user access token can access repository resources only within accounts where the GitHub App is installed, and only where both the App and the user have access. Installation is account-scoped; do not require a separate installation for every repository.
 
 The approved GitHub permission matrix for the five identified API operations remains normative:
 
@@ -219,7 +222,7 @@ Implementation is ready for review when all of the following are true:
 
 1. CLI generates the polling secret and sends only its hash to `/auth/start`.
 2. Transaction ID alone cannot retrieve a credential or authorize ACK.
-3. PKCE S256 is enforced with no fallback.
+3. PKCE S256 is enforced with no fallback; Broker generates and retains the verifier per transaction and sends the matching S256 challenge.
 4. Callback uses a fixed HTTPS redirect URI with wildcard matching disabled.
 5. Missing or invalid `state` cannot modify an arbitrary transaction.
 6. Valid callback atomically transitions the transaction to `PROCESSING` before token exchange.
@@ -235,5 +238,3 @@ Implementation is ready for review when all of the following are true:
 16. The approved GitHub permission matrix is preserved.
 17. Existing repository synchronization continues to work without changes to its safety behavior.
 18. Rate limits are configurable and account for shared NAT environments.
-
-**Implementation priority:** Implement the approved flow as written, test the security-critical transitions and failure cases, and preserve working synchronization. Do not expand scope or change approved architecture decisions without review.
