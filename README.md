@@ -147,7 +147,7 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 <h1 align="center">
   🌙 <a href="https://github.com/Dreamerol/CARDFOLIO"
      title="Object-Oriented Programming in C++ — CARDFOLIO • Mihaela Koseva (Михаела Косева) • Sofia University (Софийски университет) • SMG (СМГ) • Sofia • AI Engineer">
-    <b>𝗗𝗥𝗘𝗔𝗠𝗘𝗥𝗢𝗟 𝗠𝗨𝗟𝗧𝗜 𝗦𝗬𝗡𝗖</b>
+    <b>𝗗𝗥𝗘𝗔𝗠𝗘𝗥𝗢𝗟 𝗦𝗬𝗡𝗖</b>
   </a>
 </h1>
 
