@@ -42,6 +42,7 @@ class LoopbackServer:
         self.stopping = threading.Event()
         self.listener = socket.create_server(("127.0.0.1", 0))
         self.thread = threading.Thread(target=self._accept, daemon=True)
+        self.connection_threads = []
         self.thread.start()
 
     @property
@@ -54,7 +55,13 @@ class LoopbackServer:
                 conn, _ = self.listener.accept()
             except OSError:
                 return
-            threading.Thread(target=self._serve, args=(conn,), daemon=True).start()
+            if self.stopping.is_set():
+                # The wake-up connection from stop(), not a request.
+                conn.close()
+                return
+            thread = threading.Thread(target=self._serve, args=(conn,), daemon=True)
+            self.connection_threads.append(thread)
+            thread.start()
 
     def _serve(self, conn):
         with conn:
@@ -93,9 +100,19 @@ class LoopbackServer:
                 continue
 
     def stop(self):
+        """Stop every server thread; return the threads still running."""
         self.stopping.set()
+        # On Linux, closing a listening socket doesn't wake a thread blocked in
+        # accept(), so connect once to wake it.
+        try:
+            socket.create_connection(self.listener.getsockname(), timeout=1).close()
+        except OSError:
+            pass  # Accept has already stopped.
         self.listener.close()
-        self.thread.join(timeout=10)
+        threads = [self.thread, *self.connection_threads]
+        for thread in threads:
+            thread.join(timeout=5)
+        return [thread for thread in threads if thread.is_alive()]
 
 
 @pytest.fixture
@@ -111,8 +128,8 @@ def serve(monkeypatch):
         return server
 
     yield start
-    for server in servers:
-        server.stop()
+    leaked = [thread for server in servers for thread in server.stop()]
+    assert leaked == [], "loopback server threads still running after the test"
 
 
 @pytest.fixture
