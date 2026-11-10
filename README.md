@@ -301,7 +301,7 @@ A run stops starting new GitHub requests after 30 minutes by default. Change it 
 python main.py --time-limit 600
 ```
 
-Forks not processed in time are reported as `deadline-exceeded`, and the run exits with a failure status. A merge request is only sent if at least 30 seconds remain, and one already sent is always allowed to finish.
+Forks not processed in time are reported as `deadline-exceeded`, and the run exits with a failure status. A merge request is only sent if at least 30 seconds remain, and one already sent is always allowed to finish. [Reliability Behaviour](#-reliability-behaviour) explains what the limit can and can't interrupt.
 
 ### ⚡ Live Synchronization
 
@@ -391,7 +391,11 @@ python main.py --account octocat            # Synchronize using an account
 - Rate limits honour `Retry-After` and `X-RateLimit-Reset`. Short waits of up to 60 seconds are retried once; otherwise the run stops contacting GitHub and marks the remaining repositories `rate-limited`.
 - Merge requests are never retried. If the outcome is unclear, the fork is compared again and the result is reported as `synced` or `unknown`.
 - GitHub's merge endpoint can't be limited to a specific commit, so a fork changed in the moment between comparison and merge can only be noticed afterwards, typically as `merged`.
-- Each request has its own 30-second timeout, and the whole run has the overall time limit described above. A reply that keeps arriving slowly is abandoned once the overall limit passes.
+- Two separate limits apply. The overall time limit described above covers the whole run. Each wait for data from GitHub also times out after 30 seconds without data; this applies to each wait, not to a whole request.
+- While the body of a reply is being read, each wait is also limited to the time left, and the overall limit is checked as each piece arrives. A body that trickles in or stalls is abandoned when the overall limit is reached, and a partly read reply is never used. Merge replies are the exception (see below).
+- Reply headers are not covered by the overall limit. Until the headers have arrived, each wait is limited only to 30 seconds, or to the time left when the request started if that is shorter. A server that sends headers very slowly can keep a request running past the overall limit.
+- Within a body, a few rare transfer details are read in one step and limited only per wait, not by the overall limit: the framing lines of a chunked reply, and compressed data that decodes to nothing yet. Body enforcement also needs a urllib3 version that provides `HTTPResponse.read1` (tested with 2.8.0). With an older urllib3, the limit is checked only between 64 KB pieces of the body.
+- A merge request that has been sent is never cut short. Its reply is read in full, so it can finish after the overall limit. Each wait for its data is still limited to 30 seconds. A merge is only sent while at least 30 seconds of the overall limit remain.
 - When a fork and its upstream belong to the same owner, the upstream branch is resolved to a commit first, because GitHub's `OWNER:BRANCH` comparison format can't tell the two repositories apart.
 
 ---

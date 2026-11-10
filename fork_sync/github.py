@@ -8,6 +8,8 @@ from urllib.parse import quote
 
 import requests
 from requests.auth import AuthBase
+from urllib3.exceptions import DecodeError, ProtocolError, ReadTimeoutError, SSLError
+from urllib3.response import HTTPResponse as RawResponse
 
 
 # GitHub advises waiting at least a minute when it gives no retry time.
@@ -130,6 +132,7 @@ class GitHubClient:
     RETRYABLE_STATUS_CODES = {502, 503, 504}
     MAX_RATE_LIMIT_WAIT = 60
     MERGE_TIME_RESERVE = 30
+    BODY_CHUNK_SIZE = 65536
 
     def __init__(self, token: str):
         if not token:
@@ -214,26 +217,80 @@ class GitHubClient:
         return self.TIMEOUT
 
     def _read_body(self, response, method):
-        """Read the body, stopping a slow read once the deadline passes.
+        """Read the whole body, giving up at the deadline while it arrives.
 
-        The per-request timeout only limits each wait for data, so a reply that
-        trickles in could otherwise take indefinitely long. Merge replies are
-        always read in full.
+        The request timeout only limits each wait for data, so a reply that
+        trickles in could otherwise take indefinitely long. A reply abandoned
+        at the deadline raises DeadlineExceeded and is never used. Merge
+        replies are always read in full.
         """
         if method != "GET" or self.deadline is None:
             response.content
             return
         chunks = []
         try:
-            for chunk in response.iter_content(65536):
+            for chunk in self._body_chunks(response):
                 if self.deadline.expired():
                     raise self.deadline.error("while reading a GitHub response")
                 chunks.append(chunk)
-        except BaseException:
+            # Store the body where requests keeps it once response.content is read.
+            response._content = b"".join(chunks)
+            response._content_consumed = True
+        finally:
+            # After a complete read this only returns the connection to the
+            # pool; after a failure it closes the connection.
             response.close()
-            raise
-        response._content = b"".join(chunks)
-        response._content_consumed = True
+
+    def _body_chunks(self, response):
+        """Yield the body as it arrives, never waiting past the deadline.
+
+        A normal read waits until its whole buffer is filled, however slowly
+        the bytes come. read1 returns whatever has arrived after at most one
+        wait, and each wait is first limited to the time left.
+        """
+        raw = response.raw
+        if (
+            response._content_consumed
+            or not isinstance(raw, RawResponse)
+            or not hasattr(raw, "read1")
+        ):
+            # Test doubles, and older urllib3 releases without read1.
+            yield from response.iter_content(self.BODY_CHUNK_SIZE)
+            return
+        while True:
+            limited_by_deadline = self._limit_next_wait(raw)
+            # Errors are translated as requests' own iter_content does.
+            try:
+                chunk = raw.read1(self.BODY_CHUNK_SIZE, decode_content=True)
+            except ReadTimeoutError as error:
+                if limited_by_deadline:
+                    raise self.deadline.error("while reading a GitHub response") from error
+                raise requests.exceptions.ConnectionError(error) from error
+            except ProtocolError as error:
+                raise requests.exceptions.ChunkedEncodingError(error) from error
+            except DecodeError as error:
+                raise requests.exceptions.ContentDecodingError(error) from error
+            except SSLError as error:
+                raise requests.exceptions.SSLError(error) from error
+            if not chunk:
+                return
+            yield chunk
+
+    def _limit_next_wait(self, raw):
+        """Shorten the next socket wait to the time left.
+
+        Returns True when the deadline, not the usual timeout, sets the wait.
+        """
+        remaining = self.deadline.remaining()
+        if remaining <= 0:
+            raise self.deadline.error("while reading a GitHub response")
+        sock = getattr(raw.connection, "sock", None)
+        if sock is None:
+            # Already released: the rest of the body is buffered locally.
+            return False
+        wait = min(self.TIMEOUT, remaining)
+        sock.settimeout(wait)
+        return wait < self.TIMEOUT
 
     def _wait_before_retry(self, seconds):
         if self.deadline is not None and seconds >= self.deadline.remaining():
