@@ -13,7 +13,7 @@ import re
 import secrets
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable
 
@@ -97,6 +97,8 @@ class TransactionStore:
         self._lock = threading.RLock()
         self._transactions: dict[str, _Transaction] = {}
         self._callback_states: dict[str, str] = {}
+        # Hash -> original transaction expiry. Never retain callback plaintext.
+        self._used_callback_states: dict[str, float] = {}
 
     def create(self, polling_secret_hash: str, callback_state: str) -> str:
         """Create a PENDING transaction, storing only hashes of supplied secrets."""
@@ -108,9 +110,13 @@ class TransactionStore:
             raise ValueError("callback_state must be a non-empty string")
 
         callback_state_hash = hash_secret(callback_state)
-        now = self._clock()
         with self._lock:
-            if callback_state_hash in self._callback_states:
+            now = self._clock()
+            self._cleanup_expired_locked(now)
+            if (
+                callback_state_hash in self._callback_states
+                or callback_state_hash in self._used_callback_states
+            ):
                 raise ValueError("callback state has already been used")
             transaction_id = secrets.token_urlsafe(32)
             while transaction_id in self._transactions:
@@ -147,8 +153,9 @@ class TransactionStore:
             if transaction.state is not TransactionState.PENDING:
                 raise InvalidTransition("callback has already been claimed or completed")
             transaction.state = TransactionState.PROCESSING
-            # Removing the lookup makes callback state single-use, including
-            # concurrent and replayed callbacks.
+            # Retain this digest until the original transaction expiry so the
+            # same callback state cannot be re-used for a new transaction.
+            self._used_callback_states[supplied_hash] = transaction.expires_at
             self._callback_states.pop(supplied_hash, None)
             return transaction_id
 
@@ -175,6 +182,7 @@ class TransactionStore:
             transaction.state = (
                 TransactionState.CANCELLED if cancelled else TransactionState.FAILED
             )
+            self._used_callback_states[supplied_hash] = transaction.expires_at
             self._callback_states.pop(supplied_hash, None)
             return transaction_id
 
@@ -241,18 +249,30 @@ class TransactionStore:
 
     def cleanup_expired(self) -> int:
         """Remove expired transactions and callback indexes; return removed count."""
-        now = self._clock()
         with self._lock:
-            expired_ids = [
-                transaction_id
-                for transaction_id, transaction in self._transactions.items()
-                if now >= transaction.expires_at
-            ]
-            for transaction_id in expired_ids:
-                transaction = self._transactions.pop(transaction_id)
-                transaction.credential = None
-                self._callback_states.pop(transaction.callback_state_hash, None)
-            return len(expired_ids)
+            return self._cleanup_expired_locked(self._clock())
+
+    def _cleanup_expired_locked(self, now: float) -> int:
+        """Purge expired transactions and callback tombstones; caller holds lock."""
+        expired_ids = [
+            transaction_id
+            for transaction_id, transaction in self._transactions.items()
+            if now >= transaction.expires_at
+        ]
+        for transaction_id in expired_ids:
+            transaction = self._transactions.pop(transaction_id)
+            transaction.credential = None
+            self._callback_states.pop(transaction.callback_state_hash, None)
+
+        expired_state_hashes = [
+            state_hash
+            for state_hash, expires_at in self._used_callback_states.items()
+            if now >= expires_at
+        ]
+        for state_hash in expired_state_hashes:
+            self._used_callback_states.pop(state_hash, None)
+
+        return len(expired_ids)
 
     def _get_authenticated(self, transaction_id: str, polling_secret: str) -> _Transaction:
         transaction = self._transactions.get(transaction_id)

@@ -68,6 +68,84 @@ def test_callback_can_be_claimed_only_once(store_and_secrets):
         store.claim_callback(callback_state)
 
 
+def test_callback_state_cannot_be_reused_after_successful_callback(store_and_secrets):
+    store, _, transaction_id, polling_secret, callback_state = store_and_secrets
+    store.claim_callback(callback_state)
+    store.make_token_ready(transaction_id, "credential-value")
+
+    with pytest.raises(ValueError, match="already been used"):
+        store.create(hash_secret(polling_secret), callback_state)
+
+    state_hash = hash_secret(callback_state)
+    assert state_hash in store._used_callback_states
+    assert callback_state not in store._used_callback_states
+
+
+def test_callback_state_cannot_be_reused_after_failed_callback():
+    store = TransactionStore()
+    polling_secret = generate_polling_secret()
+    callback_state = generate_callback_state()
+    store.create(hash_secret(polling_secret), callback_state)
+    store.fail_callback(callback_state)
+
+    with pytest.raises(ValueError, match="already been used"):
+        store.create(hash_secret(polling_secret), callback_state)
+
+
+def test_callback_state_cannot_be_reused_after_cancelled_callback():
+    store = TransactionStore()
+    polling_secret = generate_polling_secret()
+    callback_state = generate_callback_state()
+    store.create(hash_secret(polling_secret), callback_state)
+    store.fail_callback(callback_state, cancelled=True)
+
+    with pytest.raises(ValueError, match="already been used"):
+        store.create(hash_secret(polling_secret), callback_state)
+
+
+def test_concurrent_create_with_same_callback_state_has_one_winner():
+    store = TransactionStore()
+    callback_state = generate_callback_state()
+    polling_hash = hash_secret(generate_polling_secret())
+    barrier = Barrier(8)
+
+    def create():
+        barrier.wait()
+        try:
+            return store.create(polling_hash, callback_state)
+        except ValueError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        outcomes = list(executor.map(lambda _: create(), range(8)))
+
+    assert sum(outcome is not None for outcome in outcomes) == 1
+    assert sum(outcome is None for outcome in outcomes) == 7
+
+
+def test_cleanup_removes_expired_callback_state_tombstone(store_and_secrets):
+    store, clock, _, _, callback_state = store_and_secrets
+    store.claim_callback(callback_state)
+    state_hash = hash_secret(callback_state)
+    assert state_hash in store._used_callback_states
+
+    clock.advance(10)
+    assert store.cleanup_expired() == 1
+
+    assert state_hash not in store._used_callback_states
+
+
+def test_callback_state_can_be_reused_after_original_ttl_expires(store_and_secrets):
+    store, clock, _, polling_secret, callback_state = store_and_secrets
+    store.claim_callback(callback_state)
+
+    clock.advance(10)
+    new_transaction_id = store.create(hash_secret(polling_secret), callback_state)
+
+    assert new_transaction_id in store._transactions
+    assert store._transactions[new_transaction_id].state is TransactionState.PENDING
+
+
 def test_concurrent_callback_claim_has_exactly_one_winner(store_and_secrets):
     store, _, transaction_id, _, callback_state = store_and_secrets
     barrier = Barrier(8)
@@ -99,9 +177,7 @@ def test_callback_failure_and_denial_terminate_only_matching_transaction():
     assert store.poll(tx_b, secret_b).state is TransactionState.CANCELLED
 
 
-def test_processing_failure_transitions_to_failed_and_clears_credential(
-    store_and_secrets,
-):
+def test_processing_failure_transitions_to_failed_and_clears_credential(store_and_secrets):
     store, _, transaction_id, polling_secret, callback_state = store_and_secrets
     store.claim_callback(callback_state)
 
@@ -240,10 +316,8 @@ def test_poll_ack_race_is_linearizable(store_and_secrets):
 
     assert ack_result is TransactionState.ACKNOWLEDGED
     if poll_result.state is TransactionState.DELIVERY_AUTHORIZED:
-        # Poll linearized before ACK.
         assert poll_result.credential == "credential-value"
     else:
-        # ACK linearized first; the racing poll must not get the credential.
         assert poll_result.state is TransactionState.ACKNOWLEDGED
         assert poll_result.credential is None
 
