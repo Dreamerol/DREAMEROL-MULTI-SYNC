@@ -2,7 +2,6 @@
 
 from .transactions import (
     InvalidCallbackState,
-    InvalidPollingSecret,
     InvalidTransaction,
     InvalidTransition,
     PollResult,
@@ -13,7 +12,6 @@ from .transactions import (
 
 __all__ = [
     "InvalidCallbackState",
-    "InvalidPollingSecret",
     "InvalidTransaction",
     "InvalidTransition",
     "PollResult",

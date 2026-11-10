@@ -8,6 +8,7 @@ multiple Broker workers requires a separately designed shared-state backend.
 from __future__ import annotations
 
 import hmac
+import math
 import re
 import secrets
 import threading
@@ -41,10 +42,6 @@ class TransactionError(Exception):
 
 class InvalidTransaction(TransactionError):
     """The transaction is unknown or the supplied polling secret is invalid."""
-
-
-class InvalidPollingSecret(InvalidTransaction):
-    """Retained for callers that want to distinguish secret failures."""
 
 
 class InvalidCallbackState(TransactionError):
@@ -88,10 +85,14 @@ class TransactionStore:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, (int, float)):
-            raise ValueError("ttl_seconds must be a positive number")
-        if ttl_seconds <= 0:
-            raise ValueError("ttl_seconds must be a positive number")
-        self._ttl_seconds = float(ttl_seconds)
+            raise ValueError("ttl_seconds must be a positive finite number")
+        try:
+            ttl_seconds = float(ttl_seconds)
+        except (OverflowError, TypeError, ValueError):
+            raise ValueError("ttl_seconds must be a positive finite number") from None
+        if not math.isfinite(ttl_seconds) or ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be a positive finite number")
+        self._ttl_seconds = ttl_seconds
         self._clock = clock
         self._lock = threading.RLock()
         self._transactions: dict[str, _Transaction] = {}
@@ -176,6 +177,20 @@ class TransactionStore:
             )
             self._callback_states.pop(supplied_hash, None)
             return transaction_id
+
+    def fail_processing(self, transaction_id: str) -> TransactionState:
+        """Atomically fail a claimed callback after exchange/validation failure."""
+        with self._lock:
+            transaction = self._get_transaction(transaction_id)
+            self._expire_if_needed(transaction)
+            if transaction.state is TransactionState.EXPIRED:
+                raise TransactionExpired("transaction has expired")
+            if transaction.state is not TransactionState.PROCESSING:
+                raise InvalidTransition("only PROCESSING transactions can fail")
+            transaction.credential = None
+            transaction.state = TransactionState.FAILED
+            self._callback_states.pop(transaction.callback_state_hash, None)
+            return transaction.state
 
     def make_token_ready(self, transaction_id: str, credential: str) -> None:
         """Store a validated credential after callback processing succeeds."""
