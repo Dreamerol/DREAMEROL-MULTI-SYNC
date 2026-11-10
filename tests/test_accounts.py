@@ -2,7 +2,10 @@ import json
 
 import keyring
 import pytest
+from keyring.errors import PasswordDeleteError
 
+import main
+from fake_github import FakeGitHub
 from fork_sync import accounts as accounts_module
 from fork_sync.accounts import ACCOUNT_INDEX, SERVICE_NAME, AccountManager
 
@@ -75,6 +78,54 @@ def test_get_client_uses_saved_token(monkeypatch, fake_keyring):
     client = AccountManager().get_client("octocat")
 
     assert client.token == "secret"
+
+
+def test_remove_account_command_deletes_saved_account(fake_keyring, capsys):
+    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = json.dumps(["octocat"])
+    fake_keyring[(SERVICE_NAME, "octocat")] = "secret"
+
+    assert main.main(["--remove-account", "octocat"]) == 0
+
+    assert (SERVICE_NAME, "octocat") not in fake_keyring
+    output = capsys.readouterr().out
+    assert "removed" in output
+    assert "secret" not in output
+
+
+def test_remove_account_command_rejects_unknown_account(fake_keyring, capsys):
+    assert main.main(["--remove-account", "nobody"]) == 1
+    assert "not registered" in capsys.readouterr().err
+
+
+def test_remove_account_clears_index_when_token_is_already_gone(fake_keyring, monkeypatch):
+    fake_keyring[(SERVICE_NAME, ACCOUNT_INDEX)] = json.dumps(["octocat"])
+
+    def already_gone(_service, _username):
+        raise PasswordDeleteError("missing")
+
+    monkeypatch.setattr(keyring, "delete_password", already_gone)
+
+    assert AccountManager().remove_account("octocat") is True
+    assert AccountManager().list_accounts() == []
+
+
+def test_empty_remove_account_value_never_starts_a_sync(fake_keyring, capsys, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    github = FakeGitHub().install(monkeypatch)
+    github.add_fork("x", compare=(0, 1))
+    prompts = []
+    monkeypatch.setattr("builtins.input", lambda prompt: prompts.append(prompt) or "SYNC")
+
+    assert main.main(["--remove-account", ""]) == 1
+
+    assert "Could not remove account" in capsys.readouterr().err
+    assert prompts == []
+    assert github.calls == []
+
+
+def test_remove_account_is_exclusive_with_other_actions():
+    with pytest.raises(SystemExit):
+        main.build_parser().parse_args(["--remove-account", "a", "--list-accounts"])
 
 
 def test_remove_account_deletes_token_and_index(fake_keyring):

@@ -163,7 +163,7 @@ alt="Mihaela Koseva (Михаела Косева) • Sofia University (Софи
 
 ### ⚡ Keep your GitHub forks synchronized effortlessly.
 
-A Python command-line tool that automatically discovers GitHub forks owned by an authenticated account and requests upstream synchronization through the official GitHub API.
+A Python command-line tool and web interface that discover GitHub forks owned by an authenticated account, compare them with upstream and safely request synchronization through the official GitHub API.
 
 Designed to make fork management easier, faster and more convenient.
 
@@ -175,9 +175,9 @@ Designed to make fork management easier, faster and more convenient.
 
 Before getting started, make sure you have:
 
-- 🐍 **Python 3**
-- 🔑 **GitHub Personal Access Token** with access to the repositories being synchronized and permission to update them.
-- 🔐 **Operating-system keyring backend** (required for saved accounts).
+- 🐍 **Python 3.11 or later** (required by the pinned web dependencies). CI runs on Python 3.12.
+- 🔑 **GitHub Personal Access Token**. See [Token Permissions](#-token-permissions) for exactly what it needs.
+- 🔐 **Operating-system keyring backend** (required for saved accounts only).
 
 ---
 
@@ -216,6 +216,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+To run the tests as well, install `requirements-dev.txt` instead.
+
 ---
 
 ## 🔑 GitHub Authentication
@@ -228,6 +230,36 @@ GITHUB_TOKEN=your_github_token_here
 
 You can also use the built-in saved account manager described below.
 
+**CLI token order:** `--account USERNAME` uses that saved account's token from the keyring. Otherwise `GITHUB_TOKEN` (from the environment or `.env`) is used, and if it isn't set, the only saved account is used.
+
+**Web token handling:** the browser sends the token in the `Authorization` header of each request. The server uses it only for that request, through a client created for that request, and doesn't write it to disk or keep it afterwards.
+
+**`.netrc` is ignored:** GitHub requests are authenticated only with the token you supply. Credentials in a `.netrc` file are never added or substituted, including after redirects; a redirect to a different host drops the token.
+
+### 🔐 Token Permissions
+
+| Operation | GitHub API | Fine-grained token | Classic token |
+|:---|:---|:---|:---|
+| Identify the account | `GET /user` | No specific permission listed by GitHub | Any token |
+| List your repositories | `GET /user/repos` | Metadata: read | Any token; private repositories need `repo` |
+| Load a fork's details | `GET /repos/{owner}/{repo}` | Metadata: read | Public: any token; private: `repo` |
+| Compare a fork with upstream | `GET /repos/{owner}/{repo}/compare/...` | Contents: read | Public: any token; private: `repo` |
+| Find the upstream branch commit (same-owner forks only) | `GET /repos/{owner}/{repo}/branches/{branch}` | Contents: read, on the upstream repository | Public: any token; private: `repo` |
+| Sync a fork | `POST /repos/{owner}/{repo}/merge-upstream` | Contents: write | Public forks: `public_repo`; private forks: `repo` |
+
+- **Previewing public forks** needs only read access. Fine-grained tokens always have read-only access to public repositories, and a classic token with no scopes can read public information.
+- **Private forks** need the read permissions above for each fork (fine-grained), or the `repo` scope (classic).
+- **Syncing** needs Contents: write on each fork you sync (fine-grained), or `public_repo` / `repo` (classic). Previewing never needs write access.
+- **Recommended:** a fine-grained token owned by your account, limited to your forks, with Metadata: read and Contents: write.
+
+Limitations:
+
+- A fine-grained token only covers the repositories you select for it. Forks it can't see are not listed and look the same as having no forks, so the tool can't warn you about them.
+- A fine-grained token covers one account or organization. Forks are discovered only for the authenticated account.
+- If an upstream change modifies files in `.github/workflows`, GitHub may require extra workflow permission to sync it. This hasn't been verified for the sync endpoint used here; if GitHub refuses, the fork is reported as `error` and nothing is merged.
+
+Permissions are taken from GitHub's documentation on [fine-grained token permissions](https://docs.github.com/en/rest/authentication/permissions-required-for-fine-grained-personal-access-tokens) and [classic token scopes](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps); they have not been tested against a live account.
+
 > ⚠️ Security Notice
 >
 > Keep your GitHub tokens private.
@@ -236,136 +268,142 @@ You can also use the built-in saved account manager described below.
 
 ---
 
-## 🚀 Usage
+## 🚀 CLI Workflow
 
-DREAMEROL SYNC FORK provides two synchronization modes:
+Both modes start the same way: the tool lists your forks, loads each fork's upstream details, and compares each fork with its upstream.
 
-- 🔍 Dry Run — Preview selected repositories without making changes.
-- ⚡ Live Sync — Request actual upstream synchronization through GitHub.
+- 🔍 Dry Run — Reports each fork's real state and changes nothing.
+- ⚡ Live Sync — Asks for confirmation, then updates only forks that are behind.
 
 ### 🔍 Preview Synchronization
-
-Preview all discovered forks without changing repositories or requiring confirmation.
 
 ```bash
 python main.py --dry-run
 ```
 
-### 🎯 Preview Specific Repositories
+### 🎯 Select Repositories
 
-Preview a selected fork:
-
-```bash
-python main.py --dry-run --repo octocat/project-fork
-```
-
-Select multiple forks by repeating `--repo`:
+Repeat `--repo` to select more than one fork. It works with both modes.
 
 ```bash
 python main.py --dry-run --repo octocat/project-fork --repo octocat/another-fork
 ```
 
+Filters match the exact `owner/repository` name. A name that doesn't match is reported as an error rather than silently ignored.
+
+Selected forks are looked up directly, so choosing a few repositories doesn't load every fork in the account. A selected repository must be a fork owned by the authenticated account; anything else is reported as not found.
+
+### ⏱️ Time Limit
+
+A run stops starting new GitHub requests after 30 minutes by default. Change it with `--time-limit SECONDS`:
+
+```bash
+python main.py --time-limit 600
+```
+
+Forks not processed in time are reported as `deadline-exceeded`, and the run exits with a failure status. A merge request is only sent if at least 30 seconds remain, and one already sent is always allowed to finish. [Reliability Behaviour](#-reliability-behaviour) explains what the limit can and can't interrupt.
+
 ### ⚡ Live Synchronization
 
-To perform an actual synchronization, simply omit `--dry-run`.
+Omit `--dry-run`:
 
 ```bash
 python main.py
 ```
 
-Or synchronize a specific repository:
-
-```bash
-python main.py --repo octocat/project-fork
-```
-
 ### 🛡️ Safety Confirmation
 
-Live synchronization can update a fork's default branch.
-
-For this reason, the application requires explicit confirmation before proceeding.
-
-The tool displays the selected repositories and asks you to type:
+The tool lists only the forks that are behind upstream and asks you to type:
 
 ```text
 SYNC
 ```
 
-Only the exact confirmation `SYNC` allows the operation to continue.
-
-Any other input cancels the run.
+Any other input cancels the run. If nothing is behind, no prompt appears.
 
 > 🔒 There is intentionally no confirmation-bypass flag.
 
-### 🎯 Repository Filters
+Each fork is compared again immediately before it is merged, in case it changed while the prompt was open.
 
-Repository filters match the exact `owner/repository` name among forks belonging to the selected account.
+---
 
-A repository that does not match is reported as an error rather than silently ignored.
+## 🌐 Web Workflow
+
+Start the server:
+
+```bash
+uvicorn api.app:app --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000`, paste a token and select **Preview forks**. The page shows the same statuses as the CLI. If any forks are behind, **SYNC lagging forks** appears and asks you to type `SYNC`. The server rechecks each selected fork before merging.
+
+The token is sent with each request and is used only for that request (see [GitHub Authentication](#-github-authentication)). Use HTTPS for anything other than local use.
+
+Each web request has a 5-minute time limit by default. A server administrator can change it with the `DREAMEROL_WEB_TIME_LIMIT` environment variable, in seconds; an invalid value stops the server from starting. If time runs out while forks are being listed, the API returns HTTP 504. A live sync looks up only the selected forks.
 
 ---
 
 ## 👥 Saved Accounts
 
-Manage multiple GitHub accounts without manually configuring your token every time.
-
-Tokens are entered without echo and securely stored using your operating system's keyring.
-
-### ➕ Add an Account
+Tokens are entered without echo and stored in your operating system's keyring.
 
 ```bash
-python main.py --add-account
+python main.py --add-account                # Add an account
+python main.py --list-accounts              # List saved accounts
+python main.py --remove-account octocat     # Delete an account and its token
+python main.py --dry-run --account octocat  # Preview using an account
+python main.py --account octocat            # Synchronize using an account
 ```
-
-### 📋 List Saved Accounts
-
-```bash
-python main.py --list-accounts
-```
-
-### 🔍 Preview Account Repositories
-
-```bash
-python main.py --dry-run --account octocat
-```
-
-### ⚡ Synchronize an Account
-
-```bash
-python main.py --account octocat
-```
-
-### 💡 Account Selection
 
 - Multiple saved accounts require `--account USERNAME`.
 - If `GITHUB_TOKEN` is configured, it is used unless `--account` is explicitly supplied.
-- Saved-account commands require a functioning operating-system keyring.
 
 ---
 
-## 📊 Synchronization Results
+## 📊 Synchronization Statuses
 
-Each repository receives a status describing the synchronization result.
-
-| Status | Description |
-|:---|:---|
-| ✅ `synced` | GitHub accepted the upstream synchronization request. |
-| 🟢 `up-to-date` | GitHub indicated that no changes needed to be merged. |
-| ⚠️ `conflict` | GitHub reported a synchronization conflict (HTTP 409). |
-| ❌ `error` | Repository data was invalid or an API request failed. |
-| 🔍 `dry-run` | Repository was selected for preview; no synchronization request was sent. |
+| Status | Meaning | Counts as failure |
+|:---|:---|:---:|
+| `behind` | Fork can be updated (preview only). | No |
+| `up-to-date` | Fork matches upstream. | No |
+| `ahead` | Fork has its own commits; it is never merged. | No |
+| `diverged` | Fork and upstream both have new commits; it is never merged. | No |
+| `branch-mismatch` | Fork and upstream default branches have different names, so the tool refuses to sync. | No |
+| `upstream-unverified` | Fork's parent and source repositories differ, or GitHub didn't report a source, so the tool refuses to sync. Forks of forks are affected. | No |
+| `unavailable` | Fork is archived or disabled. | No |
+| `synced` | GitHub fast-forwarded the fork, or a re-check confirmed it now matches upstream. | No |
+| `merged` | GitHub created a merge commit instead of fast-forwarding; the fork may have changed after comparison. Review its history. | No |
+| `no-change` | GitHub reported nothing to merge. | No |
+| `conflict` | GitHub reported a merge conflict (HTTP 409). | Yes |
+| `unknown` | GitHub didn't confirm the outcome. Check the fork before trying again. | Yes |
+| `error` | Comparison or merge failed. | Yes |
+| `skipped` | A repository couldn't be examined because GitHub's data was missing, invalid or unavailable. | Yes |
+| `rate-limited` | GitHub's rate limit stopped this repository from being processed. | Yes |
+| `deadline-exceeded` | The run's overall time limit was reached before this repository was finished. A merge with this status was not sent. | Yes |
 
 > 📌 Exit Status
 >
-> The CLI exits with a non-zero status if any repository reports `error` or `conflict`.
+> The CLI exits with a non-zero status if any repository has a failure status, or if forks can't be listed at all. The web API reports the same condition as `has_failures`, and returns HTTP 429, 502 or 504 if forks can't be listed.
+
+### 🧯 Reliability Behaviour
+
+- Read requests are retried after timeouts, connection failures and HTTP 502, 503 or 504.
+- Rate limits honour `Retry-After` and `X-RateLimit-Reset`. Short waits of up to 60 seconds are retried once; otherwise the run stops contacting GitHub and marks the remaining repositories `rate-limited`.
+- Merge requests are never retried. If the outcome is unclear, the fork is compared again and the result is reported as `synced` or `unknown`.
+- GitHub's merge endpoint can't be limited to a specific commit, so a fork changed in the moment between comparison and merge can only be noticed afterwards, typically as `merged`.
+- Two separate limits apply. The overall time limit described above covers the whole run. Each wait for data from GitHub also times out after 30 seconds without data; this applies to each wait, not to a whole request.
+- While the body of a reply is being read, each wait is also limited to the time left, and the overall limit is checked as each piece arrives. A body that trickles in or stalls is abandoned when the overall limit is reached, and a partly read reply is never used. Merge replies are the exception (see below).
+- Reply headers are not covered by the overall limit. Until the headers have arrived, each wait is limited only to 30 seconds, or to the time left when the request started if that is shorter. A server that sends headers very slowly can keep a request running past the overall limit.
+- Within a body, a few rare transfer details are read in one step and limited only per wait, not by the overall limit: the framing lines of a chunked reply, and compressed data that decodes to nothing yet. Body enforcement also needs a urllib3 version that provides `HTTPResponse.read1` (tested with 2.8.0). With an older urllib3, the limit is checked only between 64 KB pieces of the body.
+- A merge request that has been sent is never cut short. Its reply is read in full, so it can finish after the overall limit. Each wait for its data is still limited to 30 seconds. A merge is only sent while at least 30 seconds of the overall limit remain.
+- When a fork and its upstream belong to the same owner, the upstream branch is resolved to a commit first, because GitHub's `OWNER:BRANCH` comparison format can't tell the two repositories apart.
 
 ---
 
 ## 🧪 Tests
 
-Run the test suite to verify the application's behavior.
-
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
 
@@ -382,42 +420,29 @@ The tests use fakes for GitHub API calls and the system keyring.
 ```text
 DREAMEROL-SYNC-FORK/
 │
-├── main.py
-│
+├── main.py                  # CLI
+├── api/                     # FastAPI app and routes
+├── web/                     # Browser interface
 ├── fork_sync/
-│   ├── accounts.py
-│   ├── github.py
-│   └── synchronizer.py
-│
+│   ├── accounts.py          # Keyring-backed accounts
+│   ├── github.py            # GitHub client, retries and rate limits
+│   └── synchronizer.py      # Discovery, comparison and sync decisions
+├── backend/                 # Not used in production; see docs/adr/0001
+├── docs/adr/                # Architecture decisions
 ├── tests/
-│   ├── test_accounts.py
-│   ├── test_cli.py
-│   └── test_synchronizer.py
-│
-├── requirements.txt
-├── LICENSE
-└── readme.md
+├── requirements.txt         # Runtime dependencies
+└── requirements-dev.txt     # Runtime plus test dependencies
 ```
 
-### 🧩 Core Components
-
-| File | Description |
-|:---|:---|
-| `main.py` | CLI, account selection and safety prompts. |
-| `accounts.py` | Keyring-backed account management. |
-| `github.py` | GitHub API client and repository pagination. |
-| `synchronizer.py` | Fork discovery, dry-run and upstream synchronization. |
-| `test_accounts.py` | Account and keyring behavior tests. |
-| `test_cli.py` | CLI arguments, filters and confirmation tests. |
-| `test_synchronizer.py` | Fork synchronization behavior tests. |
+Organization-owned forks are not currently supported; only forks owned by the authenticated account are processed.
 
 ---
 
 ## 📌 Dependency Reproducibility
 
-`requirements.txt` pins the direct dependencies.
+`requirements.txt` and `requirements-dev.txt` pin the direct dependencies.
 
-It is not a complete transitive lockfile.
+They are not a complete transitive lockfile.
 
 For byte-for-byte reproducible environments, generate and commit a platform-aware lockfile (for example, using `pip-compile --generate-hashes`) after resolving dependencies for the supported Python and platform matrix.
 

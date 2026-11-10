@@ -3,6 +3,7 @@
 import json
 
 import keyring
+from keyring.errors import PasswordDeleteError
 
 from fork_sync.github import GitHubClient
 
@@ -73,7 +74,10 @@ class AccountManager:
         if username not in accounts:
             raise ValueError(f"Account '{username}' is not registered.")
 
-        keyring.delete_password(SERVICE_NAME, username)
+        try:
+            keyring.delete_password(SERVICE_NAME, username)
+        except PasswordDeleteError:
+            pass  # Already gone; the stale index entry must still be removed.
         accounts.remove(username)
         keyring.set_password(
             SERVICE_NAME,

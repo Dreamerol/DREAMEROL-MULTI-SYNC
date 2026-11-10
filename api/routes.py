@@ -1,11 +1,24 @@
+import os
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from requests.exceptions import HTTPError, RequestException
 
-from fork_sync.github import GitHubClient
-from fork_sync.synchronizer import ForkSynchronizer
+from fork_sync.deadline import (
+    DEFAULT_WEB_TIME_LIMIT,
+    Deadline,
+    DeadlineExceeded,
+    parse_time_limit,
+)
+from fork_sync.github import GitHubClient, GitHubRateLimitError
+from fork_sync.synchronizer import ForkSynchronizer, has_failures, summarize
 
 router = APIRouter(prefix="/api", tags=["sync"])
+
+# Server-side only; a request cannot choose its own time limit.
+WEB_TIME_LIMIT = parse_time_limit(
+    os.environ.get("DREAMEROL_WEB_TIME_LIMIT", DEFAULT_WEB_TIME_LIMIT)
+)
 
 
 class SyncRequest(BaseModel):
@@ -19,12 +32,28 @@ class SyncResult(BaseModel):
     status: str
     message: str | None = None
     behind_by: int | None = None
+    ahead_by: int | None = None
+    merge_type: str | None = None
 
 
 class SyncResponse(BaseModel):
     account: str
     total: int
+    summary: dict[str, int]
+    has_failures: bool
     results: list[SyncResult]
+
+
+def _deadline_response(error):
+    return HTTPException(status_code=504, detail=str(error))
+
+
+def _rate_limit_response(error):
+    return HTTPException(
+        status_code=429,
+        detail=str(error),
+        headers={"Retry-After": str(error.retry_after)},
+    )
 
 
 @router.post("/sync", response_model=SyncResponse)
@@ -65,9 +94,14 @@ def sync_repositories(
             raise HTTPException(status_code=400, detail="Duplicate repositories were selected.")
 
     client = GitHubClient(token.strip())
+    client.deadline = Deadline(WEB_TIME_LIMIT)
     try:
         try:
             user = client.get_authenticated_user()
+        except DeadlineExceeded as error:
+            raise _deadline_response(error) from error
+        except GitHubRateLimitError as error:
+            raise _rate_limit_response(error) from error
         except HTTPError as error:
             status_code = error.response.status_code if error.response is not None else None
             if status_code == 401:
@@ -86,14 +120,35 @@ def sync_repositories(
             raise HTTPException(status_code=502, detail="GitHub returned an invalid account profile.")
 
         synchronizer = ForkSynchronizer(client)
+        try:
+            if request.dry_run:
+                discovery = synchronizer.discover_forks()
+            else:
+                discovery = synchronizer.discover_forks(
+                    only=request.repositories, owner_login=account
+                )
+        except DeadlineExceeded as error:
+            raise _deadline_response(error) from error
+        except GitHubRateLimitError as error:
+            raise _rate_limit_response(error) from error
+        except (RequestException, ValueError, TypeError) as error:
+            raise HTTPException(status_code=502, detail="Could not load forks from GitHub.") from error
+
+        current_forks = discovery.forks
         if request.dry_run:
             # This performs read-only comparisons; it never submits a merge request.
-            results = synchronizer.preview_all()
+            results = discovery.skipped + synchronizer.preview_all(current_forks)
         else:
-            try:
-                current_forks = synchronizer.get_forks()
-            except RequestException as error:
-                raise HTTPException(status_code=502, detail="Could not load forks from GitHub.") from error
+            if any(result["status"] == "rate-limited" for result in discovery.skipped):
+                raise HTTPException(
+                    status_code=429,
+                    detail="GitHub rate limit reached while loading forks. Preview again later.",
+                )
+            if any(result["status"] == "deadline-exceeded" for result in discovery.skipped):
+                raise HTTPException(
+                    status_code=504,
+                    detail="Time limit reached while loading forks. Nothing was merged.",
+                )
 
             available = {
                 fork.get("full_name")
@@ -106,37 +161,20 @@ def sync_repositories(
                     detail="A selected repository is no longer an available fork for this account. Preview again.",
                 )
 
-            selected_names = set(request.repositories)
-            selected_forks = [
-                fork for fork in current_forks
-                if fork.get("full_name") in selected_names
-            ]
+            forks_by_name = {fork["full_name"]: fork for fork in current_forks}
 
-            # Recheck status on the server so stale or edited browser requests cannot
-            # cause an up-to-date fork to be sent to the merge-upstream endpoint.
-            preview_by_name = {
-                result["repository"]: result
-                for result in (
-                    synchronizer.preview_fork(fork) for fork in selected_forks
-                )
-            }
-            behind_forks = [
-                fork for fork in selected_forks
-                if preview_by_name[fork["full_name"]]["status"] == "behind"
-            ]
-            sync_results = synchronizer.sync_all(forks=behind_forks)
-            sync_by_name = {result["repository"]: result for result in sync_results}
+            # sync_fork compares each fork immediately before merging, so stale or
+            # edited browser requests cannot merge a fork that is not behind.
+            results = synchronizer.sync_all(
+                forks=[forks_by_name[name] for name in request.repositories]
+            )
 
-            results = []
-            for repository in request.repositories:
-                preview = preview_by_name[repository]
-                if preview["status"] == "behind":
-                    # If the second comparison changes state, sync_fork reports the
-                    # final status; otherwise this is the per-repository sync result.
-                    results.append(sync_by_name.get(repository, preview))
-                else:
-                    results.append(preview)
-
-        return SyncResponse(account=account, total=len(results), results=results)
+        return SyncResponse(
+            account=account,
+            total=len(results),
+            summary=summarize(results),
+            has_failures=has_failures(results),
+            results=results,
+        )
     finally:
         client.session.close()

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from requests.exceptions import HTTPError, RequestException
 
 from api.app import app
+from fork_sync.synchronizer import ForkDiscovery
 
 
 @pytest.fixture
@@ -56,22 +57,17 @@ def test_live_sync_processes_only_selected_forks_that_are_behind(
     unselected_fork = make_fork("demo/unselected")
 
     synchronizer = Mock()
-    synchronizer.get_forks.return_value = [
-        behind_fork,
-        current_fork,
-        unselected_fork,
-    ]
-    synchronizer.preview_fork.side_effect = [
-        {"repository": "demo/behind", "status": "behind", "behind_by": 3},
-        {"repository": "demo/current", "status": "up-to-date", "behind_by": 0},
-    ]
+    synchronizer.discover_forks.return_value = ForkDiscovery(
+        [behind_fork, current_fork, unselected_fork], []
+    )
     synchronizer.sync_all.return_value = [
         {
             "repository": "demo/behind",
             "status": "synced",
-            "message": "Synced 3 upstream commits.",
+            "message": "Fast-forwarded to upstream.",
             "behind_by": 3,
-        }
+        },
+        {"repository": "demo/current", "status": "up-to-date", "behind_by": 0},
     ]
     patch_synchronizer(monkeypatch, synchronizer)
 
@@ -94,9 +90,5 @@ def test_live_sync_processes_only_selected_forks_that_are_behind(
         "up-to-date",
     ]
 
-    assert synchronizer.preview_fork.call_count == 2
-    synchronizer.preview_fork.assert_any_call(behind_fork)
-    synchronizer.preview_fork.assert_any_call(current_fork)
-
-    synchronizer.sync_all.assert_called_once_with(forks=[behind_fork])
+    synchronizer.sync_all.assert_called_once_with(forks=[behind_fork, current_fork])
     github.session.close.assert_called_once_with()
