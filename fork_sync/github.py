@@ -39,6 +39,15 @@ class GitHubClient:
         """Return the authenticated GitHub account."""
         return self._request("GET", "/user")
 
+    def get_repository(self, full_name: str):
+        """Return complete repository metadata, including fork parent details."""
+        if not isinstance(full_name, str) or full_name.count("/") != 1:
+            raise ValueError("Repository full_name must be OWNER/REPO.")
+        owner, name = full_name.split("/", 1)
+        if not owner or not name:
+            raise ValueError("Repository full_name must be OWNER/REPO.")
+        return self._request("GET", f"/repos/{owner}/{name}")
+
     def list_repositories(self):
         """Return all repositories owned by the authenticated account."""
         repositories = []

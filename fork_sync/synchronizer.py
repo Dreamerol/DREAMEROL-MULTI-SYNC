@@ -21,11 +21,25 @@ class ForkSynchronizer:
                 continue
 
             parent = repository.get("parent")
-            if not isinstance(parent, dict):
-                continue
+            upstream_full_name = parent.get("full_name") if isinstance(parent, dict) else None
+            upstream_branch = parent.get("default_branch") if isinstance(parent, dict) else None
 
-            upstream_full_name = parent.get("full_name")
-            upstream_branch = parent.get("default_branch")
+            # The /user/repos listing may omit parent metadata. Fetch the
+            # individual repository resource before deciding it is not a fork.
+            if (
+                (not isinstance(upstream_full_name, str) or not upstream_full_name.strip())
+                or (not isinstance(upstream_branch, str) or not upstream_branch.strip())
+            ):
+                full_name = repository.get("full_name")
+                get_repository = getattr(self.github, "get_repository", None)
+                if isinstance(full_name, str) and callable(get_repository):
+                    details = get_repository(full_name)
+                    if isinstance(details, dict):
+                        repository = details
+                        parent = repository.get("parent")
+                        upstream_full_name = parent.get("full_name") if isinstance(parent, dict) else None
+                        upstream_branch = parent.get("default_branch") if isinstance(parent, dict) else None
+
             if (
                 not isinstance(upstream_full_name, str)
                 or not upstream_full_name.strip()
@@ -165,7 +179,7 @@ class ForkSynchronizer:
     def sync_fork(self, repo):
         """Sync a fork only when its default branch is behind upstream and safe to update."""
         try:
-            full_name, fork_branch, _, ahead_by, behind_by = self._compare_fork(repo)
+            full_name, _, upstream_branch, ahead_by, behind_by = self._compare_fork(repo)
             if behind_by == 0 and ahead_by == 0:
                 return {
                     "repository": full_name,
@@ -199,7 +213,7 @@ class ForkSynchronizer:
                     "ahead_by": ahead_by,
                 }
 
-            self.github.merge_upstream(full_name, fork_branch)
+            self.github.merge_upstream(full_name, upstream_branch)
             return {
                 "repository": full_name,
                 "status": "synced",
